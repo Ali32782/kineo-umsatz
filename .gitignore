@@ -1,0 +1,24 @@
+# Data and exports
+!data/
+!data/kineo.db
+data/*.db-journal
+exports/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

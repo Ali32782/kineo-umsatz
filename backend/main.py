@@ -1,0 +1,710 @@
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
+from datetime import datetime, timedelta
+from typing import Optional, List
+from jose import JWTError, jwt
+from pydantic import BaseModel
+import os, io, json
+
+from database import get_db, init_db, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, Feiertag, Notification, BilatData
+from calc import (
+    compute_zeg, compute_soll_tage, parse_csv_umsatz,
+    zeg_color, MONTH_NAMES_DE, MA_PATTERNS
+)
+
+# ── Config ────────────────────────────────────────────────────────────────
+SECRET_KEY = "kineo-secret-2026-change-in-prod"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 hours
+
+app = FastAPI(title="Kineo Umsatzanalyse", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Init DB on startup
+@app.on_event("startup")
+def startup():
+    init_db()
+
+# ── Auth ──────────────────────────────────────────────────────────────────
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    user: dict
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+def create_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def get_current_user(token: str = Depends(lambda: None), db: Session = Depends(get_db)):
+    from fastapi.security import OAuth2PasswordBearer
+    raise HTTPException(status_code=401, detail="Not authenticated")
+
+from fastapi.security import OAuth2PasswordBearer
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/login")
+
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(status_code=401, detail="Ungültige Anmeldedaten")
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise credentials_exception
+    return user
+
+@app.post("/api/login", response_model=Token)
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == req.username).first()
+    from auth import verify_password
+    if not user or not verify_password(req.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Falscher Benutzername oder Passwort")
+    token = create_token({"sub": user.username})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "username": user.username,
+            "full_name": user.full_name,
+            "role": user.role,
+            "team": user.team,
+        }
+    }
+
+# ── MA Stammdaten ─────────────────────────────────────────────────────────
+@app.get("/api/ma")
+def get_ma_list(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    mas = db.query(MAStammdaten).filter(MAStammdaten.is_active == True).all()
+    # Filter by team for teamleads
+    if current_user.role == "teamlead" and current_user.team:
+        mas = [m for m in mas if m.team == current_user.team]
+    return [{"name": m.name, "display_name": m.display_name, "team": m.team,
+              "role": m.role, "bg_pct": m.bg_pct, "eintritt": m.eintritt} for m in mas]
+
+# ── CSV Upload ────────────────────────────────────────────────────────────
+@app.post("/api/upload-csv")
+async def upload_csv(
+    file: UploadFile = File(...),
+    year: int = Form(...),
+    month: int = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role not in ("ceo", "bd"):
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+
+    content = await file.read()
+    try:
+        text = content.decode('utf-8-sig')
+    except:
+        text = content.decode('latin-1')
+
+    umsatz_map = parse_csv_umsatz(text)
+
+    # Delete existing entries for this month
+    db.query(UmsatzData).filter(
+        UmsatzData.year == year,
+        UmsatzData.month == month
+    ).delete()
+
+    # Insert new
+    inserted = 0
+    for name, amount in umsatz_map.items():
+        db.add(UmsatzData(
+            ma_name=name, year=year, month=month,
+            umsatz=amount, uploaded_by=current_user.username
+        ))
+        inserted += 1
+
+    db.commit()
+    return {
+        "message": f"{inserted} MA-Umsätze für {MONTH_NAMES_DE[month]} {year} importiert",
+        "data": umsatz_map
+    }
+
+# ── Monthly Inputs ────────────────────────────────────────────────────────
+class MonthlyInputData(BaseModel):
+    ma_name: str
+    year: int
+    month: int
+    ferien_t: float = 0
+    kurs_h: float = 0
+    workshop_h: float = 0
+    marketing_h: float = 0
+    laufanalyse_h: float = 0
+    krank_t: float = 0
+    notes: Optional[str] = None
+
+@app.get("/api/inputs/{year}/{month}")
+def get_inputs(
+    year: int, month: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    inputs = db.query(MonthlyInput).filter(
+        MonthlyInput.year == year,
+        MonthlyInput.month == month
+    ).all()
+    return {i.ma_name: {
+        "ferien_t": i.ferien_t, "kurs_h": i.kurs_h, "workshop_h": i.workshop_h,
+        "marketing_h": i.marketing_h, "laufanalyse_h": i.laufanalyse_h,
+        "krank_t": i.krank_t, "notes": i.notes
+    } for i in inputs}
+
+@app.post("/api/inputs")
+def save_inputs(
+    data: List[MonthlyInputData],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role not in ("ceo", "bd"):
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+
+    for item in data:
+        existing = db.query(MonthlyInput).filter(
+            MonthlyInput.ma_name == item.ma_name,
+            MonthlyInput.year == item.year,
+            MonthlyInput.month == item.month,
+        ).first()
+        if existing:
+            for field in ["ferien_t","kurs_h","workshop_h","marketing_h","laufanalyse_h","krank_t","notes"]:
+                setattr(existing, field, getattr(item, field))
+            existing.updated_at = datetime.utcnow()
+            existing.updated_by = current_user.username
+        else:
+            db.add(MonthlyInput(
+                **item.dict(),
+                updated_at=datetime.utcnow(),
+                updated_by=current_user.username
+            ))
+    db.commit()
+    return {"message": f"{len(data)} Einträge gespeichert"}
+
+# ── Dashboard / ZEG Data ──────────────────────────────────────────────────
+@app.get("/api/dashboard/{year}/{month}")
+def get_dashboard(
+    year: int, month: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    mas = db.query(MAStammdaten).filter(MAStammdaten.is_active == True).all()
+    if current_user.role == "teamlead" and current_user.team:
+        mas = [m for m in mas if m.team == current_user.team]
+
+    umsatz_rows = db.query(UmsatzData).filter(
+        UmsatzData.year == year, UmsatzData.month == month
+    ).all()
+    umsatz_map = {r.ma_name: r.umsatz for r in umsatz_rows}
+
+    input_rows = db.query(MonthlyInput).filter(
+        MonthlyInput.year == year, MonthlyInput.month == month
+    ).all()
+    input_map = {r.ma_name: r for r in input_rows}
+
+    results = []
+    for ma in mas:
+        name = ma.name
+        umsatz = umsatz_map.get(name, 0)
+        inp = input_map.get(name)
+        zeg = compute_zeg(
+            name, year, month, umsatz,
+            ferien_t=inp.ferien_t if inp else 0,
+            kurs_h=inp.kurs_h if inp else 0,
+            workshop_h=inp.workshop_h if inp else 0,
+            marketing_h=inp.marketing_h if inp else 0,
+            laufanalyse_h=inp.laufanalyse_h if inp else 0,
+            krank_t=inp.krank_t if inp else 0,
+        )
+        results.append({
+            "name": name,
+            "display_name": ma.display_name,
+            "team": ma.team,
+            "role": ma.role,
+            "umsatz": umsatz,
+            "color": zeg_color(zeg["zeg_b"]),
+            **zeg,
+        })
+
+    # Team aggregates
+    teams = {}
+    for r in results:
+        t = r["team"]
+        if t not in teams:
+            teams[t] = {"umsatz": 0, "zeg_b_sum": 0, "count": 0}
+        teams[t]["umsatz"] += r["umsatz"]
+        if r["zeg_b"]:
+            teams[t]["zeg_b_sum"] += r["zeg_b"]
+            teams[t]["count"] += 1
+
+    team_summary = {
+        t: {
+            "umsatz": round(v["umsatz"]),
+            "zeg_b_avg": round(v["zeg_b_sum"] / v["count"], 3) if v["count"] else None,
+            "color": zeg_color(v["zeg_b_sum"] / v["count"] if v["count"] else None)
+        }
+        for t, v in teams.items()
+    }
+
+    return {
+        "year": year,
+        "month": month,
+        "month_name": MONTH_NAMES_DE[month],
+        "ma_data": results,
+        "team_summary": team_summary,
+        "total_umsatz": round(sum(r["umsatz"] for r in results)),
+    }
+
+# ── YTD Overview ──────────────────────────────────────────────────────────
+@app.get("/api/ytd/{year}")
+def get_ytd(
+    year: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    mas = db.query(MAStammdaten).filter(MAStammdaten.is_active == True).all()
+    if current_user.role == "teamlead" and current_user.team:
+        mas = [m for m in mas if m.team == current_user.team]
+
+    umsatz_all = db.query(UmsatzData).filter(UmsatzData.year == year).all()
+    inputs_all = db.query(MonthlyInput).filter(MonthlyInput.year == year).all()
+
+    umsatz_map = {}
+    for r in umsatz_all:
+        umsatz_map[(r.ma_name, r.month)] = r.umsatz
+
+    input_map = {}
+    for r in inputs_all:
+        input_map[(r.ma_name, r.month)] = r
+
+    results = []
+    for ma in mas:
+        name = ma.name
+        monthly = []
+        zeg_b_values = []
+        for m in range(1, 13):
+            umsatz = umsatz_map.get((name, m), 0)
+            inp = input_map.get((name, m))
+            soll = compute_soll_tage(name, year, m)
+            if soll == 0:
+                monthly.append(None)
+                continue
+            if umsatz == 0 and not inp:
+                monthly.append(None)
+                continue
+            zeg = compute_zeg(
+                name, year, m, umsatz,
+                ferien_t=inp.ferien_t if inp else 0,
+                kurs_h=inp.kurs_h if inp else 0,
+                workshop_h=inp.workshop_h if inp else 0,
+                marketing_h=inp.marketing_h if inp else 0,
+                laufanalyse_h=inp.laufanalyse_h if inp else 0,
+                krank_t=inp.krank_t if inp else 0,
+            )
+            monthly.append({
+                "umsatz": umsatz,
+                "zeg_b": zeg["zeg_b"],
+                "color": zeg_color(zeg["zeg_b"])
+            })
+            if zeg["zeg_b"]:
+                zeg_b_values.append(zeg["zeg_b"])
+
+        avg_zeg_b = round(sum(zeg_b_values) / len(zeg_b_values), 3) if zeg_b_values else None
+        results.append({
+            "name": name,
+            "display_name": ma.display_name,
+            "team": ma.team,
+            "role": ma.role,
+            "bg_pct": ma.bg_pct,
+            "monthly": monthly,
+            "avg_zeg_b": avg_zeg_b,
+            "color": zeg_color(avg_zeg_b),
+            "total_umsatz": sum(
+                (m["umsatz"] for m in monthly if m), 0
+            ),
+        })
+
+    return {"year": year, "ma_data": results}
+
+# ── Excel Export ──────────────────────────────────────────────────────────
+@app.get("/api/export/excel/{year}")
+async def export_excel(
+    year: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    from excel_export import generate_excel
+    path = generate_excel(year, db)
+    return FileResponse(
+        path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=f"Kineo_Umsatzanalyse_{year}.xlsx"
+    )
+
+# ── Bilat Export ──────────────────────────────────────────────────────────
+@app.get("/api/export/bilats/{year}/{month}")
+async def export_bilats(
+    year: int, month: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    from bilat_export import generate_bilats_zip
+    path = generate_bilats_zip(year, month, db, current_user)
+    return FileResponse(
+        path,
+        media_type="application/zip",
+        filename=f"Kineo_Bilats_{MONTH_NAMES_DE[month]}_{year}.zip"
+    )
+
+# ── Health ────────────────────────────────────────────────────────────────
+@app.get("/api/export/bilat-single/{year}/{month}/{ma_name}")
+async def export_bilat_single(
+    year: int, month: int, ma_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Teamleads can only download their own team
+    if current_user.role == "teamlead":
+        ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+        if not ma or ma.team != current_user.team:
+            raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    from bilat_export import generate_single_bilat
+    path = generate_single_bilat(year, month, ma_name, db)
+    safe = ma_name.replace(".","_")
+    return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        filename=f"Bilat_{safe}_{MONTH_NAMES_DE[month]}_{year}.docx")
+
+
+
+
+# ── Password Change ───────────────────────────────────────────────────────
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+@app.post("/api/profile/change-password")
+def change_password(data: PasswordChange, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from auth import verify_password, hash_password
+    if not verify_password(data.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Aktuelles Passwort falsch")
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Passwort muss mindestens 8 Zeichen haben")
+    current_user.hashed_password = hash_password(data.new_password)
+    db.commit()
+    return {"message": "Passwort geaendert"}
+
+# ── ZEG-B Trend Alarm ────────────────────────────────────────────────────
+@app.post("/api/admin/check-trends")
+def check_zeg_trends(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    mas = db.query(MAStammdaten).filter_by(is_active=True).all()
+    umsatz_all = {(r.ma_name,r.month):r.umsatz for r in db.query(UmsatzData).filter_by(year=2026).all()}
+    input_all = {(r.ma_name,r.month):r for r in db.query(MonthlyInput).filter_by(year=2026).all()}
+    alerts = []
+    for ma in mas:
+        below = []
+        for m in range(1,13):
+            u = umsatz_all.get((ma.name,m),0)
+            if u == 0: continue
+            inp = input_all.get((ma.name,m))
+            zeg = compute_zeg(ma.name,2026,m,u,
+                ferien_t=inp.ferien_t if inp else 0, kurs_h=inp.kurs_h if inp else 0,
+                workshop_h=inp.workshop_h if inp else 0, marketing_h=inp.marketing_h if inp else 0,
+                laufanalyse_h=inp.laufanalyse_h if inp else 0, krank_t=inp.krank_t if inp else 0)
+            if zeg["zeg_b"] and zeg["zeg_b"] < 0.85:
+                below.append(m)
+            else:
+                below = []  # reset streak
+            if len(below) >= 2:
+                msg = f"ZEG-B Alarm: {ma.display_name} — {len(below)} Monate unter 85% (seit {MONTH_NAMES_DE[below[0]]})"
+                exists = db.query(Notification).filter_by(type="zeg_alarm", detail=ma.name, is_read=False).first()
+                if not exists:
+                    db.add(Notification(type="zeg_alarm", message=msg, detail=ma.name))
+                    alerts.append(msg)
+    db.commit()
+    if alerts:
+        # Build structured alert list for email
+        alert_objs = []
+        for ma in mas:
+            below = []
+            for m in range(1,13):
+                u = umsatz_all.get((ma.name,m),0)
+                if u == 0: continue
+                inp = input_all.get((ma.name,m))
+                zeg = compute_zeg(ma.name,2026,m,u,
+                    ferien_t=inp.ferien_t if inp else 0, kurs_h=inp.kurs_h if inp else 0,
+                    workshop_h=inp.workshop_h if inp else 0, marketing_h=inp.marketing_h if inp else 0,
+                    laufanalyse_h=inp.laufanalyse_h if inp else 0, krank_t=inp.krank_t if inp else 0)
+                if zeg["zeg_b"] and zeg["zeg_b"] < 0.85:
+                    below.append(zeg["zeg_b"])
+                else:
+                    below = []
+                if len(below) >= 2:
+                    alert_objs.append({"name": ma.display_name, "months": len(below),
+                                       "avg_zeg": sum(below)/len(below)*100})
+                    break
+        email_zeg_alarm(alert_objs)
+    return {"alerts": alerts, "count": len(alerts)}
+
+# ── Monthly Reminder Check ────────────────────────────────────────────────
+@app.post("/api/admin/check-reminders")
+def check_reminders(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    from datetime import date
+    today = date.today()
+    if today.day < 5:
+        return {"message": "Zu früh im Monat"}
+    # Check if last month has data
+    last_month = today.month - 1 if today.month > 1 else 12
+    last_year = today.year if today.month > 1 else today.year - 1
+    count = db.query(UmsatzData).filter_by(year=last_year, month=last_month).count()
+    if count == 0:
+        msg = f"CSV fuer {MONTH_NAMES_DE[last_month]} {last_year} noch nicht hochgeladen!"
+        exists = db.query(Notification).filter(
+            Notification.type=="csv_reminder",
+            Notification.message.contains(str(last_month)),
+            Notification.is_read==False
+        ).first()
+        if not exists:
+            db.add(Notification(type="csv_reminder", message=msg, detail=f"{last_year}-{last_month:02d}"))
+            db.commit()
+            email_csv_reminder(MONTH_NAMES_DE[last_month], last_year)
+        return {"reminder": msg}
+    return {"message": "CSV vorhanden"}
+
+# ── Bilat Data ────────────────────────────────────────────────────────────
+class BilatInput(BaseModel):
+    kat_a_self: Optional[int] = None
+    kat_a_fk: Optional[int] = None
+    kat_a_comment: Optional[str] = None
+    kat_b_self: Optional[int] = None
+    kat_b_fk: Optional[int] = None
+    kat_b_comment: Optional[str] = None
+    kat_c_self: Optional[int] = None
+    kat_c_fk: Optional[int] = None
+    kat_c_comment: Optional[str] = None
+    kat_d_self: Optional[int] = None
+    kat_d_fk: Optional[int] = None
+    kat_d_comment: Optional[str] = None
+    vereinbarungen: Optional[str] = None
+    themen_ma: Optional[str] = None
+    gespraechseindruck: Optional[str] = None
+    naechstes_bilat: Optional[str] = None
+
+@app.get("/api/bilat/{ma_name}/{year}/{half}")
+def get_bilat(ma_name: str, year: int, half: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, half=half).first()
+    if not b: return {}
+    return {k: getattr(b,k) for k in BilatInput.__fields__}
+
+@app.post("/api/bilat/{ma_name}/{year}/{half}")
+def save_bilat(ma_name: str, year: int, half: int, data: BilatInput,
+               db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, half=half).first()
+    if not b:
+        b = BilatData(ma_name=ma_name, year=year, half=half)
+        db.add(b)
+    for k,v in data.dict().items():
+        setattr(b, k, v)
+    b.updated_at = datetime.utcnow()
+    b.updated_by = current_user.username
+    db.commit()
+    return {"message": "Bilat gespeichert"}
+
+@app.get("/api/bilat-overview/{year}/{half}")
+def get_bilat_overview(year: int, half: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    mas = db.query(MAStammdaten).filter_by(is_active=True).all()
+    if current_user.role == "teamlead" and current_user.team:
+        mas = [m for m in mas if m.team == current_user.team]
+    bilats = {b.ma_name: b for b in db.query(BilatData).filter_by(year=year, half=half).all()}
+    return [{
+        "name": m.name, "display_name": m.display_name, "team": m.team,
+        "has_data": m.name in bilats,
+        "kat_a_fk": bilats[m.name].kat_a_fk if m.name in bilats else None,
+        "kat_b_fk": bilats[m.name].kat_b_fk if m.name in bilats else None,
+        "kat_c_fk": bilats[m.name].kat_c_fk if m.name in bilats else None,
+        "kat_d_fk": bilats[m.name].kat_d_fk if m.name in bilats else None,
+    } for m in mas]
+
+# ── Notifications ─────────────────────────────────────────────────────────
+@app.get("/api/notifications")
+def get_notifications(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "ceo":
+        return []
+    notifs = db.query(Notification).filter_by(is_read=False).order_by(Notification.created_at.desc()).all()
+    return [{"id":n.id,"type":n.type,"message":n.message,"detail":n.detail,
+             "created_at":n.created_at.isoformat()} for n in notifs]
+
+@app.patch("/api/notifications/{notif_id}/read")
+def mark_read(notif_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    n = db.query(Notification).filter_by(id=notif_id).first()
+    if n: n.is_read = True; db.commit()
+    return {"message": "Gelesen"}
+
+@app.patch("/api/notifications/read-all")
+def mark_all_read(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    db.query(Notification).filter_by(is_read=False).update({"is_read": True})
+    db.commit()
+    return {"message": "Alle gelesen"}
+
+# ── Admin: MA Stammdaten ──────────────────────────────────────────────────
+class MACreate(BaseModel):
+    name: str
+    display_name: str
+    team: str
+    role: str = "therapeut"
+    bg_pct: float = 1.0
+    eintritt: Optional[str] = None
+    austritt: Optional[str] = None
+
+@app.get("/api/admin/ma")
+def admin_get_ma(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    mas = db.query(MAStammdaten).order_by(MAStammdaten.name).all()
+    return [{"id": m.id, "name": m.name, "display_name": m.display_name, "team": m.team,
+             "role": m.role, "bg_pct": m.bg_pct, "is_active": m.is_active,
+             "eintritt": m.eintritt, "austritt": m.austritt} for m in mas]
+
+@app.post("/api/admin/ma")
+def admin_create_ma(data: MACreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    ma = MAStammdaten(**data.dict())
+    db.add(ma); db.commit(); db.refresh(ma)
+    return {"id": ma.id, "message": f"{ma.name} erstellt"}
+
+@app.put("/api/admin/ma/{ma_name}")
+def admin_update_ma(ma_name: str, data: MACreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+    if not ma: raise HTTPException(status_code=404, detail="MA nicht gefunden")
+    for k,v in data.dict().items(): setattr(ma, k, v)
+    db.commit()
+    return {"message": f"{ma_name} aktualisiert"}
+
+@app.patch("/api/admin/ma/{ma_name}/toggle")
+def admin_toggle_ma(ma_name: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+    if not ma: raise HTTPException(status_code=404, detail="MA nicht gefunden")
+    ma.is_active = not ma.is_active
+    db.commit()
+    return {"message": f"{ma_name} {'aktiviert' if ma.is_active else 'deaktiviert'}", "is_active": ma.is_active}
+
+# ── Admin: Schedule ───────────────────────────────────────────────────────
+class ScheduleDay(BaseModel):
+    weekday: int
+    vm_pct: float = 0.0
+    vm_standort: Optional[str] = None
+    nm_pct: float = 0.0
+    nm_standort: Optional[str] = None
+
+@app.get("/api/admin/schedule/{ma_name}")
+def get_schedule(ma_name: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    entries = db.query(MAScheduleEntry).filter_by(ma_name=ma_name).order_by(MAScheduleEntry.weekday).all()
+    if not entries:
+        # Return defaults from calc.py
+        from calc import MA_PATTERNS
+        pat = MA_PATTERNS.get(ma_name, {})
+        days=[]
+        for wd in range(5):
+            day_map={0:"mo",1:"di",2:"mi",3:"do",4:"fr"}
+            pct=pat.get(day_map[wd],0)
+            days.append({"weekday":wd,"vm_pct":pct,"vm_standort":None,"nm_pct":pct,"nm_standort":None})
+        return days
+    return [{"weekday":e.weekday,"vm_pct":e.vm_pct,"vm_standort":e.vm_standort,
+             "nm_pct":e.nm_pct,"nm_standort":e.nm_standort} for e in entries]
+
+@app.post("/api/admin/schedule/{ma_name}")
+def save_schedule(ma_name: str, data: List[ScheduleDay], db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    db.query(MAScheduleEntry).filter_by(ma_name=ma_name).delete()
+    for day in data:
+        db.add(MAScheduleEntry(ma_name=ma_name, **day.dict()))
+    db.commit()
+    return {"message": f"Schedule für {ma_name} gespeichert"}
+
+# ── Admin: Feiertage ──────────────────────────────────────────────────────
+class FeiertageEntry(BaseModel):
+    date_str: str
+    name: str
+    faktor: float = 1.0
+
+@app.get("/api/admin/feiertage/{year}")
+def get_feiertage(year: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    entries = db.query(Feiertag).filter_by(year=year).order_by(Feiertag.date_str).all()
+    if not entries:
+        # Return defaults from calc.py
+        from calc import FEIERTAGE_FULL, FEIERTAGE_HALF
+        defaults=[]
+        names={
+            "2026-01-01":"Neujahr","2026-01-02":"Berchtoldstag",
+            "2026-04-03":"Karfreitag","2026-04-06":"Ostermontag",
+            "2026-04-20":"Sächseläuten","2026-05-01":"Tag der Arbeit",
+            "2026-05-14":"Auffahrt","2026-05-25":"Pfingstmontag",
+            "2026-08-01":"Nationalfeiertag","2026-09-14":"Knabenschiessen",
+            "2026-12-25":"Weihnachten","2026-12-26":"Stephanstag",
+        }
+        for d in FEIERTAGE_FULL:
+            if d.year==year:
+                ds=d.strftime("%Y-%m-%d")
+                defaults.append({"date_str":ds,"name":names.get(ds,ds),"faktor":1.0})
+        for d in FEIERTAGE_HALF:
+            if d.year==year:
+                ds=d.strftime("%Y-%m-%d")
+                defaults.append({"date_str":ds,"name":names.get(ds,ds),"faktor":0.5})
+        return sorted(defaults,key=lambda x:x["date_str"])
+    return [{"id":e.id,"date_str":e.date_str,"name":e.name,"faktor":e.faktor} for e in entries]
+
+@app.post("/api/admin/feiertage/{year}")
+def save_feiertage(year: int, data: List[FeiertageEntry], db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    db.query(Feiertag).filter_by(year=year).delete()
+    for f in data:
+        db.add(Feiertag(year=year, **f.dict()))
+    db.commit()
+    return {"message": f"{len(data)} Feiertage für {year} gespeichert"}
+
+@app.delete("/api/admin/feiertage/{year}/{date_str}")
+def delete_feiertag(year: int, date_str: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    db.query(Feiertag).filter_by(year=year, date_str=date_str).delete()
+    db.commit()
+    return {"message": "Gelöscht"}
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok", "app": "Kineo Umsatzanalyse", "version": "1.0.0"}
