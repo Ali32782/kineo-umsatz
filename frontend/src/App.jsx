@@ -561,16 +561,27 @@ function UploadPage() {
 // ── YTD Overview Page ──────────────────────────────────────────────────────
 function OverviewPage() {
   const [data, setData] = useState(null)
+  const [filterStandort, setFilterStandort] = useState("Alle")
+  const [filterRole, setFilterRole] = useState("Alle")
+  const [sortBy, setSortBy] = useState("name")
   const months = ["Jan","Feb","Mrz","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"]
 
   useEffect(() => { api("/api/ytd/2026").then(setData).catch(console.error) }, [])
 
   if (!data) return <div style={{ textAlign: "center", padding: 60, color: "#888" }}>Lade…</div>
 
+  // Filter MA
+  let maList = data.ma_data || []
+  if (filterStandort !== "Alle") maList = maList.filter(m => m.team === filterStandort)
+  if (filterRole !== "Alle") maList = maList.filter(m => m.role === filterRole)
+  if (sortBy === "zeg") maList = [...maList].sort((a,b) => (b.avg_zeg_b||0)-(a.avg_zeg_b||0))
+  if (sortBy === "umsatz") maList = [...maList].sort((a,b) => (b.total_umsatz||0)-(a.total_umsatz||0))
+  if (sortBy === "name") maList = [...maList].sort((a,b) => a.name.localeCompare(b.name))
+
   return (
     <div>
       <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.03em" }}>Jahresübersicht 2026</h1>
-      <div style={{ color: "#888", marginBottom: 28, fontSize: 13 }}>ZEG-B pro Monat und Mitarbeiter</div>
+      <div style={{ color: "#888", marginBottom: 16, fontSize: 13 }}>ZEG-B pro Monat und Mitarbeiter</div>
       <div style={{ background: "white", borderRadius: 8, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
