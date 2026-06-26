@@ -158,7 +158,7 @@ function Layout({ children, page, setPage }) {
       {/* Sidebar */}
       <div style={{ width: 220, background: "#0F3A50", color: "white", flexShrink: 0, display: "flex", flexDirection: "column" }}>
         <div style={{ padding: "28px 20px 24px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-          <KineoLogo width={140} variant="white" />
+          <div style={{fontWeight:800,fontSize:18,letterSpacing:3,color:"white"}}>KINEO</div>
           <div style={{ fontSize: 10, opacity: 0.45, marginTop: 8, letterSpacing: 2, textTransform: "uppercase", fontFamily: "Inter, system-ui, sans-serif" }}>Kineo Analytics</div>
           {auth.user?.role === "ceo" && <NotificationBell setPage={setPage} />}
         </div>
