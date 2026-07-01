@@ -355,7 +355,7 @@ function DashboardPage() {
                 </div>
                 {/* MA rows: FTE% + Name + ZEG */}
                 {teamMAs.map(ma => (
-                  <div key={ma.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #F5F5F5" }}>
+                  <div key={`${ma.name}-${ma.team}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #F5F5F5" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: "#888", minWidth: 30 }}>{(ma.bg_pct*100).toFixed(0)}%</span>
                       <span style={{ fontSize: 12, color: "#333" }}>{ma.display_name}</span>

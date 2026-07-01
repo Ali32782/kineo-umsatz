@@ -76,18 +76,39 @@ def schedule_needs_reseed(entries) -> bool:
         return True
     return any((e.vm_pct or 0) >= 0.15 or (e.nm_pct or 0) >= 0.15 for e in entries)
 
+def _collect_schedule_weights(schedule_entries, include_office: bool = False) -> dict[str, float]:
+    weights: dict[str, float] = {}
+    if not schedule_entries:
+        return weights
+    for e in schedule_entries:
+        if e.vm_pct and e.vm_standort and (include_office or e.vm_standort != "Office"):
+            weights[e.vm_standort] = weights.get(e.vm_standort, 0) + e.vm_pct
+        if e.nm_pct and e.nm_standort and (include_office or e.nm_standort != "Office"):
+            weights[e.nm_standort] = weights.get(e.nm_standort, 0) + e.nm_pct
+    return weights
+
+
+def get_standort_fte_weights(
+    ma_name: str,
+    primary_team: str,
+    bg_pct: float,
+    schedule_entries=None,
+) -> dict[str, float]:
+    """Absolute FTE pro Standort — Summe der Halbtags-Anteile (0.10 = 10 % der Woche)."""
+    weights = _collect_schedule_weights(schedule_entries)
+    if weights:
+        return {k: round(v, 2) for k, v in weights.items()}
+    if ma_name in MA_STANDORT_SPLITS:
+        return {k: round(bg_pct * v, 2) for k, v in MA_STANDORT_SPLITS.items()}
+    return {primary_team: bg_pct}
+
+
 def get_standort_splits(ma_name: str, primary_team: str, schedule_entries=None) -> dict:
-    """Standort-Aufteilung: DB-Schedule mit Standorten > MA_STANDORT_SPLITS > Primary-Team."""
-    if schedule_entries:
-        splits = {}
-        for e in schedule_entries:
-            if e.vm_pct and e.vm_standort and e.vm_standort != "Office":
-                splits[e.vm_standort] = splits.get(e.vm_standort, 0) + e.vm_pct
-            if e.nm_pct and e.nm_standort and e.nm_standort != "Office":
-                splits[e.nm_standort] = splits.get(e.nm_standort, 0) + e.nm_pct
-        if splits:
-            total = sum(splits.values())
-            return {k: v / total for k, v in splits.items()}
+    """Relative Umsatz-Aufteilung pro Standort (Summe = 1.0)."""
+    weights = _collect_schedule_weights(schedule_entries)
+    if weights:
+        total = sum(weights.values())
+        return {k: v / total for k, v in weights.items()}
     if ma_name in MA_STANDORT_SPLITS:
         return dict(MA_STANDORT_SPLITS[ma_name])
     return {primary_team: 1.0}

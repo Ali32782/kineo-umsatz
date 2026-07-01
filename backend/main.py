@@ -12,7 +12,7 @@ import os, io, json
 from database import get_db, init_db, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, Feiertag, Notification, BilatData
 from calc import (
     compute_zeg, compute_soll_tage, parse_csv_umsatz,
-    zeg_color, MONTH_NAMES_DE, MA_PATTERNS, get_standort_splits,
+    zeg_color, MONTH_NAMES_DE, MA_PATTERNS, get_standort_splits, get_standort_fte_weights,
 )
 from email_service import email_zeg_alarm, email_csv_reminder
 
@@ -256,15 +256,17 @@ def get_dashboard(
     # Build multi-standort ma_data entries
     ma_data_expanded = []
     for r in results:
-        splits = get_standort_splits(r["name"], r["team"], schedule_map.get(r["name"]))
+        schedule = schedule_map.get(r["name"])
         ma_bg = next((m.bg_pct for m in mas if m.name == r["name"]), r.get("bg_pct", 1.0))
-        for standort, pct in splits.items():
+        fte_weights = get_standort_fte_weights(r["name"], r["team"], ma_bg, schedule)
+        umsatz_splits = get_standort_splits(r["name"], r["team"], schedule)
+        for standort, fte in fte_weights.items():
             ma_data_expanded.append({
                 **r,
                 "team": standort,
-                "umsatz": r["umsatz"] * pct,
-                "bg_pct": ma_bg * pct,
-                "standort_pct": round(pct * 100),
+                "umsatz": r["umsatz"] * umsatz_splits.get(standort, 0),
+                "bg_pct": fte,
+                "standort_pct": round(fte / ma_bg * 100) if ma_bg else 0,
                 "primary_team": r["team"],
             })
 

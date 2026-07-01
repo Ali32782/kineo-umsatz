@@ -19,6 +19,7 @@ from calc import (  # noqa: E402
     get_standort_splits,
     day_pct_to_halves,
     schedule_needs_reseed,
+    get_standort_fte_weights,
 )
 from database import init_db, SessionLocal, MAScheduleEntry, Feiertag, Base, engine, seed_schedules_from_excel  # noqa: E402
 
@@ -141,6 +142,42 @@ def test_seed_schedules_from_excel_emma():
         assert entries[0].vm_standort == "Thalwil"
     finally:
         db.close()
+
+
+def test_get_standort_fte_weights_sereina():
+    class E:
+        def __init__(self, vm_pct, vm_standort, nm_pct=0, nm_standort=None):
+            self.vm_pct = vm_pct
+            self.vm_standort = vm_standort
+            self.nm_pct = nm_pct
+            self.nm_standort = nm_standort
+    entries = [
+        E(0.10, "Office", 0.10, "Seefeld"),
+        E(0.10, "Seefeld", 0.10, "Seefeld"),
+        E(0.10, "Office", 0.10, "Seefeld"),
+        E(0.10, "Seefeld", 0, None),
+        E(0.10, "Office", 0.10, "Seefeld"),
+    ]
+    weights = get_standort_fte_weights("Sereina.U", "Management", 0.9, entries)
+    assert weights == {"Seefeld": 0.6}
+
+
+def test_get_standort_fte_weights_emma_split():
+    class E:
+        def __init__(self, vm_pct, vm_standort, nm_pct=0, nm_standort=None):
+            self.vm_pct = vm_pct
+            self.vm_standort = vm_standort
+            self.nm_pct = nm_pct
+            self.nm_standort = nm_standort
+    entries = [
+        E(0.10, "Thalwil", 0.10, "Thalwil"),
+        E(0.10, "Stauffacher", 0.10, "Stauffacher"),
+        E(0.10, "Thalwil", 0.10, "Thalwil"),
+        E(0.10, "Stauffacher", 0.10, "Stauffacher"),
+        E(0.10, "Thalwil", 0.10, "Thalwil"),
+    ]
+    weights = get_standort_fte_weights("Emma.L", "Wipkingen", 1.0, entries)
+    assert weights == {"Thalwil": 0.6, "Stauffacher": 0.4}
 
 
 def test_get_standort_splits_helen_meike():

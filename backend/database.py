@@ -165,7 +165,7 @@ def migrate_schema():
 
 def seed_schedules_from_excel():
     """Arbeitspläne aus Standort-Übersicht 2026 (Excel) in die DB schreiben."""
-    from schedule_seed import load_excel_schedules, schedule_needs_excel_reseed
+    from schedule_seed import load_excel_schedules
 
     schedules = load_excel_schedules()
     if not schedules:
@@ -174,9 +174,6 @@ def seed_schedules_from_excel():
 
     db = SessionLocal()
     for ma_name, days in schedules.items():
-        entries = db.query(MAScheduleEntry).filter_by(ma_name=ma_name).all()
-        if not schedule_needs_excel_reseed(entries, days):
-            continue
         db.query(MAScheduleEntry).filter_by(ma_name=ma_name).delete()
         for day in days:
             db.add(MAScheduleEntry(ma_name=ma_name, **day))
