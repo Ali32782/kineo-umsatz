@@ -332,17 +332,18 @@ function DashboardPage() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 20, marginBottom: 28 }}>
         {teams.map(([team, stats]) => {
           const teamMAs = (data.ma_data||[]).filter(m => m.team === team)
+          const isOffice = stats.is_office || team === "Office"
           const c = ZEG_COLORS[stats.color || "gray"]
           return (
-            <div key={team} style={{ background: "white", borderRadius: 8, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-              <div style={{ background: c.bg, borderBottom: `3px solid ${c.border}`, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div key={team} style={{ background: "white", borderRadius: 8, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", opacity: isOffice ? 0.92 : 1 }}>
+              <div style={{ background: isOffice ? "#F5F5F5" : c.bg, borderBottom: `3px solid ${isOffice ? "#999" : c.border}`, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 16, fontFamily: "'Roboto Condensed', sans-serif", letterSpacing: "0.05em", color: "#1a1a1a" }}>{team}</div>
                   <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
-                    CHF {(stats.umsatz||0).toLocaleString("de-CH")}
+                    {isOffice ? `FTE ${(stats.fte||0).toFixed(1)} · kein Umsatz` : `CHF ${(stats.umsatz||0).toLocaleString("de-CH")}`}
                   </div>
                 </div>
-                <ZEGBadge value={stats.zeg_b_avg} color={stats.color} size="lg" />
+                {!isOffice && <ZEGBadge value={stats.zeg_b_avg} color={stats.color} size="lg" />}
               </div>
               <div style={{ padding: "12px 20px" }}>
                 {/* FTE Total */}
@@ -359,7 +360,9 @@ function DashboardPage() {
                       <span style={{ fontSize: 11, fontWeight: 700, color: "#888", minWidth: 30 }}>{(ma.bg_pct*100).toFixed(0)}%</span>
                       <span style={{ fontSize: 12, color: "#333" }}>{ma.display_name}</span>
                     </div>
-                    <ZEGBadge value={ma.zeg_b} color={ma.color} />
+                    {ma.is_office
+                      ? <span style={{ fontSize: 10, color: "#999" }}>Office</span>
+                      : <ZEGBadge value={ma.zeg_b} color={ma.color} />}
                   </div>
                 ))}
               </div>
@@ -842,6 +845,8 @@ function AdminPage() {
   const [schedule, setSchedule] = useState([])
   const [scheduleValidFrom, setScheduleValidFrom] = useState("")
   const [scheduleVersions, setScheduleVersions] = useState([])
+  const [scheduleScope, setScheduleScope] = useState("from")
+  const [scheduleEditYM, setScheduleEditYM] = useState("")
   const [msg, setMsg] = useState(null)
   const [newMA, setNewMA] = useState({name:"",display_name:"",team:"Seefeld",role:"therapeut",bg_pct:1.0,eintritt:"",austritt:""})
   const [showNewMA, setShowNewMA] = useState(false)
@@ -853,21 +858,36 @@ function AdminPage() {
   useEffect(() => { loadMAs() }, [])
   useEffect(() => { if (tab === "feiertage") loadFeiertage() }, [feiertagYear, tab])
 
-  const loadSchedule = async (name) => {
-    const res = await api(`/api/admin/schedule/${name}`)
+  const loadSchedule = async (name, editYM = "") => {
+    const url = editYM
+      ? `/api/admin/schedule/${name}?year=${editYM.split("-")[0]}&month=${+editYM.split("-")[1]}`
+      : `/api/admin/schedule/${name}`
+    const res = await api(url)
     setSchedule(res.days || res)
     setScheduleValidFrom(res.valid_from || `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`)
     setScheduleVersions(res.versions || [])
+    setScheduleScope(editYM ? "month" : (res.scope || "from"))
+    setScheduleEditYM(editYM)
     setScheduleMA(name)
   }
 
   const saveSchedule = async () => {
+    const body = scheduleScope === "month" && scheduleEditYM
+      ? {
+          scope: "month",
+          year: +scheduleEditYM.split("-")[0],
+          month: +scheduleEditYM.split("-")[1],
+          valid_from: scheduleEditYM,
+          days: schedule,
+        }
+      : { scope: "from", valid_from: scheduleValidFrom, days: schedule }
     const res = await api(`/api/admin/schedule/${scheduleMA}`, {
       method: "POST",
-      body: JSON.stringify({ valid_from: scheduleValidFrom, days: schedule }),
+      body: JSON.stringify(body),
     })
     setMsg({type:"ok", text: res.message || "Arbeitstag-Muster gespeichert"})
     setScheduleMA(null)
+    setScheduleEditYM("")
   }
 
   const toggleMA = async (name) => {
@@ -1029,21 +1049,49 @@ function AdminPage() {
                 <h4 style={{ fontFamily: CD.fontDisplay,margin:0,color:CD.primary,display:"flex",alignItems:"center",gap:8}}>
                   <Calendar size={18} /> {scheduleMA}
                 </h4>
-                <button style={btn("#EEE","#333")} onClick={()=>setScheduleMA(null)}>← Zurück</button>
+                <button style={btn("#EEE","#333")} onClick={()=>{setScheduleMA(null);setScheduleEditYM("")}}>← Zurück</button>
               </div>
               <ScheduleHelp />
+              <div style={{display:"flex",flexWrap:"wrap",gap:12,marginBottom:16}}>
+                <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
+                  <input type="radio" name="schedScope" checked={scheduleScope==="from"} onChange={()=>{setScheduleScope("from");setScheduleEditYM("");loadSchedule(scheduleMA)}} />
+                  Standard (gültig ab Monat)
+                </label>
+                <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
+                  <input type="radio" name="schedScope" checked={scheduleScope==="month"} onChange={()=>{
+                    const ym = scheduleEditYM || `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`
+                    setScheduleScope("month"); setScheduleEditYM(ym); loadSchedule(scheduleMA, ym)
+                  }} />
+                  Nur dieser Monat (Override)
+                </label>
+              </div>
               <div style={{display:"flex",flexWrap:"wrap",gap:16,alignItems:"flex-end",marginBottom:16,padding:"12px 16px",background:"#F8F9FA",borderRadius:8,border:"1px solid #E8E8E8"}}>
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:4}}>Gültig ab (Monat)</div>
-                  <input type="month" value={scheduleValidFrom} onChange={e=>setScheduleValidFrom(e.target.value)}
-                    style={inp()} />
-                </div>
-                <div style={{fontSize:12,color:"#666",maxWidth:420,lineHeight:1.5}}>
-                  Gilt ab dem <strong>1. des gewählten Monats</strong> für FTE, Standorte und Soll-Tage.
-                  Frühere Monate behalten die bisherige Version.
-                </div>
-                {scheduleVersions.length > 1 && (
-                  <div style={{fontSize:11,color:"#888"}}>
+                {scheduleScope === "from" ? (
+                  <>
+                    <div>
+                      <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:4}}>Gültig ab (Monat)</div>
+                      <input type="month" value={scheduleValidFrom} onChange={e=>setScheduleValidFrom(e.target.value)}
+                        style={inp()} />
+                    </div>
+                    <div style={{fontSize:12,color:"#666",maxWidth:420,lineHeight:1.5}}>
+                      Gilt ab dem <strong>1. des gewählten Monats</strong> für FTE, Standorte und Soll-Tage.
+                      Frühere Monate behalten die bisherige Version.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:4}}>Monat (nur dieser)</div>
+                      <input type="month" value={scheduleEditYM} onChange={e=>{setScheduleEditYM(e.target.value); loadSchedule(scheduleMA, e.target.value)}}
+                        style={inp()} />
+                    </div>
+                    <div style={{fontSize:12,color:"#666",maxWidth:420,lineHeight:1.5}}>
+                      Überschreibt den Standardplan <strong>nur für diesen einen Monat</strong> (z. B. Vertretung, temporäre Standortänderung).
+                    </div>
+                  </>
+                )}
+                {scheduleVersions.length > 0 && (
+                  <div style={{fontSize:11,color:"#888",width:"100%"}}>
                     Versionen: {scheduleVersions.map(v => v.label).join(" · ")}
                   </div>
                 )}
@@ -1106,7 +1154,7 @@ function AdminPage() {
               </table>
               <div style={{marginTop:16,display:"flex",gap:8}}>
                 <button style={btn()} onClick={saveSchedule}>Speichern</button>
-                <button style={btn("#EEE","#333")} onClick={()=>setScheduleMA(null)}>Abbrechen</button>
+                <button style={btn("#EEE","#333")} onClick={()=>{setScheduleMA(null);setScheduleEditYM("")}}>Abbrechen</button>
               </div>
             </div>
           )}

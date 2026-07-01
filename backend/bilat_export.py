@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from database import UmsatzData, MonthlyInput, MAStammdaten, User, BilatData
-from calc import compute_zeg, compute_soll_tage, zeg_color, MONTH_NAMES_DE
+from calc import compute_zeg, compute_soll_tage, zeg_color, MONTH_NAMES_DE, is_employed_in_month
+from schedule_utils import get_schedule_entries_for_month
+from standort_calc import expand_ma_standort_rows
 
 EXPORTS_DIR = os.environ.get("EXPORTS_DIR", os.path.join(os.path.dirname(__file__), "../exports"))
 TEAL = RGBColor(0x00, 0x6B, 0x6B)
@@ -29,7 +31,11 @@ def _half_for_month(month: int) -> int:
     return 1 if month <= 6 else 2
 
 def generate_bilats_zip(year: int, month: int, db: Session, current_user: User, period_label: str = None) -> str:
-    mas = db.query(MAStammdaten).filter(MAStammdaten.is_active == True).all()
+    all_mas = db.query(MAStammdaten).all()
+    mas = [
+        m for m in all_mas
+        if any(is_employed_in_month(m.eintritt, m.austritt, year, mo, m.is_active) for mo in range(1, month + 1))
+    ]
     if current_user.role == "teamlead" and current_user.team:
         mas = [m for m in mas if m.team == current_user.team]
 
@@ -107,6 +113,8 @@ def _generate_bilat_doc(ma: MAStammdaten, year: int, month: int,
 
     zeg_b_values = []
     for m in range(1, month + 1):
+        if not is_employed_in_month(ma.eintritt, ma.austritt, year, m, ma.is_active):
+            continue
         umsatz = umsatz_all.get((ma.name, m), 0)
         inp = inputs_all.get((ma.name, m))
         soll = compute_soll_tage(ma.name, year, m, db=db)
@@ -141,6 +149,41 @@ def _generate_bilat_doc(ma: MAStammdaten, year: int, month: int,
 
     doc.add_paragraph('')
     doc.add_paragraph('Legende: ✓ ≥ 100%  |  ~ 85–99%  |  ! < 85%  |  Ziel: CHF 1\'040 / produktiver Tag')
+    doc.add_paragraph('')
+
+    # ── Standort-Aufteilung (letzter Monat) ─────────────────────────────
+    h3 = doc.add_heading(f'Standort-Aufteilung {MONTH_NAMES_DE[month]} {year}', level=2)
+    h3.runs[0].font.color.rgb = TEAL
+    umsatz_m = umsatz_all.get((ma.name, month), 0)
+    inp_m = inputs_all.get((ma.name, month))
+    if is_employed_in_month(ma.eintritt, ma.austritt, year, month, ma.is_active) and umsatz_m:
+        zeg_m = compute_zeg(
+            ma.name, year, month, umsatz_m,
+            ferien_t=inp_m.ferien_t if inp_m else 0,
+            kurs_h=inp_m.kurs_h if inp_m else 0,
+            workshop_h=inp_m.workshop_h if inp_m else 0,
+            marketing_h=inp_m.marketing_h if inp_m else 0,
+            laufanalyse_h=inp_m.laufanalyse_h if inp_m else 0,
+            krank_t=inp_m.krank_t if inp_m else 0,
+            db=db,
+        )
+        sched = get_schedule_entries_for_month(ma.name, year, month, db)
+        row_data = {"name": ma.name, "display_name": ma.display_name, "team": ma.team, "umsatz": umsatz_m, **zeg_m}
+        standort_rows = expand_ma_standort_rows(row_data, ma.bg_pct, ma.team, sched)
+        tbl3 = doc.add_table(rows=1, cols=4)
+        tbl3.style = 'Table Grid'
+        for i, txt in enumerate(['Standort', 'FTE-Anteil', 'Umsatz CHF', 'ZEG-B']):
+            tbl3.rows[0].cells[i].text = txt
+            tbl3.rows[0].cells[i].paragraphs[0].runs[0].bold = True
+        for sr in standort_rows:
+            row = tbl3.add_row().cells
+            row[0].text = sr['team'] + (' (kein Umsatz)' if sr.get('is_office') else '')
+            row[1].text = f"{(sr['bg_pct']*100):.0f}%"
+            row[2].text = f"CHF {sr['umsatz']:,.0f}".replace(',', "'") if sr['umsatz'] else '—'
+            row[3].text = zeg_label(sr.get('zeg_b'))
+    else:
+        doc.add_paragraph('Kein Umsatz im Berichtsmonat.').runs[0].italic = True
+
     doc.add_paragraph('')
 
     # ── Erfasste Bewertung (aus BilatData, falls vorhanden) ──────────────
@@ -201,9 +244,11 @@ def _generate_bilat_doc(ma: MAStammdaten, year: int, month: int,
 
 def generate_single_bilat(year: int, month: int, ma_name: str, db, period_label: str = None) -> str:
     """Generate a single bilat Word doc for one MA, including erfasste Bewertungen."""
-    ma = db.query(MAStammdaten).filter_by(name=ma_name, is_active=True).first()
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
     if not ma:
         raise ValueError(f"MA {ma_name} not found")
+    if not is_employed_in_month(ma.eintritt, ma.austritt, year, month, ma.is_active):
+        raise ValueError(f"MA {ma_name} war im Berichtsmonat nicht angestellt")
     umsatz_all = {(r.ma_name, r.month): r.umsatz
                   for r in db.query(UmsatzData).filter(UmsatzData.year==year).all()}
     inputs_all = {(r.ma_name, r.month): r

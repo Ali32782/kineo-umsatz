@@ -12,7 +12,7 @@ import os, io, json
 from database import get_db, init_db, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, MAScheduleSet, Feiertag, Notification, BilatData
 from calc import (
     compute_zeg, compute_soll_tage, parse_csv_umsatz,
-    zeg_color, MONTH_NAMES_DE, MA_PATTERNS, get_standort_splits, get_standort_fte_weights,
+    zeg_color, MONTH_NAMES_DE, MA_PATTERNS,
     is_employed_in_month,
 )
 from email_service import email_zeg_alarm, email_csv_reminder
@@ -256,46 +256,16 @@ def get_dashboard(
         from schedule_utils import get_schedule_entries_for_month
         schedule_map[ma.name] = get_schedule_entries_for_month(ma.name, year, month, db)
 
-    # Build multi-standort ma_data entries
+    # Build multi-standort ma_data entries (ZEG-B + Umsatz pro Standort, inkl. Office)
+    from standort_calc import expand_ma_standort_rows, aggregate_team_summary
+
     ma_data_expanded = []
     for r in results:
         schedule = schedule_map.get(r["name"])
         ma_bg = next((m.bg_pct for m in mas if m.name == r["name"]), r.get("bg_pct", 1.0))
-        primary = r["team"]
-        fte_weights = get_standort_fte_weights(r["name"], primary, ma_bg, schedule)
-        umsatz_splits = get_standort_splits(r["name"], primary, schedule)
-        if not fte_weights:
-            fte_weights = {primary: ma_bg}
-            umsatz_splits = {primary: 1.0}
-        for standort, fte in fte_weights.items():
-            ma_data_expanded.append({
-                **r,
-                "team": standort,
-                "umsatz": r["umsatz"] * umsatz_splits.get(standort, 0),
-                "bg_pct": fte,
-                "standort_pct": round(fte / ma_bg * 100) if ma_bg else 0,
-                "primary_team": primary,
-            })
+        ma_data_expanded.extend(expand_ma_standort_rows(r, ma_bg, r["team"], schedule))
 
-    # Team aggregates from expanded data
-    teams = {}
-    for r in ma_data_expanded:
-        t = r["team"]
-        if t not in teams:
-            teams[t] = {"umsatz": 0, "zeg_b_sum": 0, "count": 0}
-        teams[t]["umsatz"] += r["umsatz"]
-        if r["zeg_b"]:
-            teams[t]["zeg_b_sum"] += r["zeg_b"]
-            teams[t]["count"] += 1
-
-    team_summary = {
-        t: {
-            "umsatz": round(v["umsatz"]),
-            "zeg_b_avg": round(v["zeg_b_sum"] / v["count"], 3) if v["count"] else None,
-            "color": zeg_color(v["zeg_b_sum"] / v["count"] if v["count"] else None)
-        }
-        for t, v in teams.items()
-    }
+    team_summary = aggregate_team_summary(ma_data_expanded)
 
     total_fte_all = round(sum(r["bg_pct"] for r in ma_data_expanded), 1)
     from umsatz_agg import sum_umsatz_for_month
@@ -715,28 +685,63 @@ class ScheduleDay(BaseModel):
     nm_standort: Optional[str] = None
 
 class ScheduleSave(BaseModel):
-    valid_from: str  # YYYY-MM
+    valid_from: str  # YYYY-MM (bei scope=from)
     days: List[ScheduleDay]
+    scope: str = "from"  # "from" | "month"
+    year: Optional[int] = None
+    month: Optional[int] = None
 
 @app.get("/api/admin/schedule/{ma_name}")
-def get_schedule(ma_name: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_schedule(
+    ma_name: str,
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     if current_user.role != "ceo":
         raise HTTPException(status_code=403, detail="Keine Berechtigung")
-    from schedule_utils import format_valid_from_label
-    versions = (
+    from schedule_utils import (
+        format_valid_from_label, get_schedule_entries_for_month, list_schedule_versions,
+    )
+
+    versions = list_schedule_versions(db, ma_name)
+    scope = "from"
+    valid_from = f"{date.today().year}-{date.today().month:02d}"
+
+    if year and month:
+        entries = get_schedule_entries_for_month(ma_name, year, month, db)
+        override = db.query(MAScheduleSet).filter_by(
+            ma_name=ma_name, override_year=year, override_month=month,
+        ).first()
+        scope = "month" if override else "from"
+        valid_from = f"{year}-{month:02d}"
+        if entries:
+            return {
+                "days": [{"weekday": e.weekday, "vm_pct": e.vm_pct, "vm_standort": e.vm_standort,
+                          "nm_pct": e.nm_pct, "nm_standort": e.nm_standort} for e in entries],
+                "valid_from": valid_from,
+                "scope": scope,
+                "year": year,
+                "month": month,
+                "versions": versions,
+            }
+
+    latest = (
         db.query(MAScheduleSet)
         .filter_by(ma_name=ma_name)
+        .filter(MAScheduleSet.override_year.is_(None))
         .order_by(MAScheduleSet.valid_from.desc())
-        .all()
+        .first()
     )
-    if versions:
-        latest = versions[0]
+    if latest:
         entries = db.query(MAScheduleEntry).filter_by(schedule_set_id=latest.id).order_by(MAScheduleEntry.weekday).all()
         return {
             "days": [{"weekday": e.weekday, "vm_pct": e.vm_pct, "vm_standort": e.vm_standort,
                       "nm_pct": e.nm_pct, "nm_standort": e.nm_standort} for e in entries],
             "valid_from": latest.valid_from[:7],
-            "versions": [{"valid_from": v.valid_from[:7], "label": format_valid_from_label(v.valid_from)} for v in versions],
+            "scope": "from",
+            "versions": versions,
         }
     # Return defaults from calc.py
     from calc import MA_PATTERNS, day_pct_to_halves
@@ -746,18 +751,31 @@ def get_schedule(ma_name: str, db: Session = Depends(get_db), current_user: User
         day_map = {0: "mo", 1: "di", 2: "mi", 3: "do", 4: "fr"}
         vm, nm = day_pct_to_halves(pat.get(day_map[wd], 0) or 0)
         days.append({"weekday": wd, "vm_pct": vm, "vm_standort": None, "nm_pct": nm, "nm_standort": None})
-    return {"days": days, "valid_from": f"{date.today().year}-{date.today().month:02d}", "versions": []}
+    return {"days": days, "valid_from": valid_from, "scope": "from", "versions": versions}
 
 @app.post("/api/admin/schedule/{ma_name}")
 def save_schedule(ma_name: str, payload: ScheduleSave, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role != "ceo":
         raise HTTPException(status_code=403, detail="Keine Berechtigung")
-    from schedule_utils import create_schedule_set, format_valid_from_label, normalize_valid_from
+    from schedule_utils import (
+        create_month_schedule_override, create_schedule_set,
+        format_valid_from_label, normalize_valid_from,
+    )
+    days = [d.dict() for d in payload.days]
+
+    if payload.scope == "month":
+        if not payload.year or not payload.month:
+            raise HTTPException(status_code=400, detail="Jahr und Monat erforderlich für Monats-Override")
+        create_month_schedule_override(db, ma_name, payload.year, payload.month, days)
+        db.commit()
+        from calc import MONTH_NAMES_DE
+        label = f"{MONTH_NAMES_DE[payload.month]} {payload.year}"
+        return {"message": f"Monats-Arbeitsplan gespeichert — gilt nur für {label}"}
+
     try:
         valid_from = normalize_valid_from(payload.valid_from)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    days = [d.dict() for d in payload.days]
     create_schedule_set(db, ma_name, valid_from, days)
     db.commit()
     label = format_valid_from_label(valid_from)

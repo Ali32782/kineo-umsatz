@@ -77,11 +77,13 @@ class MAPattern(Base):
 
 
 class MAScheduleSet(Base):
-    """Versionierter Wochen-Arbeitsplan — gilt ab valid_from (YYYY-MM-01) für alle folgenden Monate."""
+    """Versionierter Wochen-Arbeitsplan — gilt ab valid_from oder nur für override_year/month."""
     __tablename__ = "ma_schedule_sets"
     id = Column(Integer, primary_key=True)
     ma_name = Column(String, nullable=False, index=True)
     valid_from = Column(String, nullable=False)  # YYYY-MM-01
+    override_year = Column(Integer, nullable=True)
+    override_month = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     entries = relationship("MAScheduleEntry", back_populates="schedule_set", cascade="all, delete-orphan")
 
@@ -177,6 +179,13 @@ def migrate_schema():
         with engine.begin() as conn:
             if "schedule_set_id" not in cols:
                 conn.execute(text("ALTER TABLE ma_schedule ADD COLUMN schedule_set_id INTEGER"))
+    if inspector.has_table("ma_schedule_sets"):
+        cols = {c["name"] for c in inspector.get_columns("ma_schedule_sets")}
+        with engine.begin() as conn:
+            if "override_year" not in cols:
+                conn.execute(text("ALTER TABLE ma_schedule_sets ADD COLUMN override_year INTEGER"))
+            if "override_month" not in cols:
+                conn.execute(text("ALTER TABLE ma_schedule_sets ADD COLUMN override_month INTEGER"))
     migrate_legacy_schedule_sets()
 
 def migrate_legacy_schedule_sets():

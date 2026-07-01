@@ -57,9 +57,11 @@ export function ScheduleHelp() {
       <div>
         <strong>Wann gilt eine Änderung?</strong>
         <p style={{ margin: "6px 0 8px" }}>
-          Beim Speichern wählst du <strong>«Gültig ab»</strong> (Monat). Das Muster gilt dann ab dem
-          <strong> 1. dieses Monats</strong> für FTE, Standortverteilung und Soll-Tage.
-          Monate davor bleiben unverändert (ältere Version).
+          <strong>Standard:</strong> «Gültig ab» (Monat) — gilt ab dem <strong>1. dieses Monats</strong> für FTE,
+          Standortverteilung und Soll-Tage. Frühere Monate behalten die ältere Version.
+          <br />
+          <strong>Monats-Override:</strong> «Nur dieser Monat» — überschreibt den Plan <em>nur für einen einzelnen Monat</em>
+          (z. B. Vertretung), ohne die Standard-Version zu ändern.
         </p>
         <strong>Was bedeuten die Prozent-Werte?</strong>
         <p style={{ margin: "6px 0 0" }}>

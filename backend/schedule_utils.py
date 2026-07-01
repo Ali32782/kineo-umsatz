@@ -1,4 +1,4 @@
-"""Hilfsfunktionen für versionierte Arbeitspläne (gültig ab Monat)."""
+"""Hilfsfunktionen für versionierte Arbeitspläne (gültig ab Monat + Monats-Override)."""
 from __future__ import annotations
 
 from datetime import date
@@ -25,25 +25,42 @@ def format_valid_from_label(valid_from: str) -> str:
     return f"{MONTH_NAMES_DE[int(m)]} {y}"
 
 
+def _entries_for_set(db, schedule_set) -> list:
+    from database import MAScheduleEntry
+    return (
+        db.query(MAScheduleEntry)
+        .filter_by(schedule_set_id=schedule_set.id)
+        .order_by(MAScheduleEntry.weekday)
+        .all()
+    )
+
+
 def get_schedule_entries_for_month(ma_name: str, year: int, month: int, db) -> list:
-    """Arbeitsplan-Einträge, die für den Monat gelten (neueste Version mit valid_from ≤ Monat)."""
+    """Monats-Override > Version gültig ab ≤ Monat > Legacy."""
     from database import MAScheduleEntry, MAScheduleSet
+
+    month_override = (
+        db.query(MAScheduleSet)
+        .filter_by(ma_name=ma_name, override_year=year, override_month=month)
+        .first()
+    )
+    if month_override:
+        return _entries_for_set(db, month_override)
 
     target = month_start_iso(year, month)
     schedule_set = (
         db.query(MAScheduleSet)
-        .filter(MAScheduleSet.ma_name == ma_name, MAScheduleSet.valid_from <= target)
+        .filter(
+            MAScheduleSet.ma_name == ma_name,
+            MAScheduleSet.override_year.is_(None),
+            MAScheduleSet.valid_from <= target,
+        )
         .order_by(MAScheduleSet.valid_from.desc())
         .first()
     )
     if schedule_set:
-        return (
-            db.query(MAScheduleEntry)
-            .filter_by(schedule_set_id=schedule_set.id)
-            .order_by(MAScheduleEntry.weekday)
-            .all()
-        )
-    # Legacy-Einträge ohne Version
+        return _entries_for_set(db, schedule_set)
+
     return (
         db.query(MAScheduleEntry)
         .filter_by(ma_name=ma_name, schedule_set_id=None)
@@ -52,23 +69,9 @@ def get_schedule_entries_for_month(ma_name: str, year: int, month: int, db) -> l
     )
 
 
-def create_schedule_set(db, ma_name: str, valid_from: str, days: list[dict]) -> int:
-    from database import MAScheduleEntry, MAScheduleSet
-
-    valid_from = normalize_valid_from(valid_from)
-    existing = (
-        db.query(MAScheduleSet)
-        .filter_by(ma_name=ma_name, valid_from=valid_from)
-        .first()
-    )
-    if existing:
-        db.query(MAScheduleEntry).filter_by(schedule_set_id=existing.id).delete()
-        schedule_set = existing
-    else:
-        schedule_set = MAScheduleSet(ma_name=ma_name, valid_from=valid_from)
-        db.add(schedule_set)
-        db.flush()
-
+def _save_schedule_set(db, schedule_set, ma_name: str, days: list[dict]) -> int:
+    from database import MAScheduleEntry
+    db.query(MAScheduleEntry).filter_by(schedule_set_id=schedule_set.id).delete()
     for day in days:
         db.add(MAScheduleEntry(
             ma_name=ma_name,
@@ -80,3 +83,72 @@ def create_schedule_set(db, ma_name: str, valid_from: str, days: list[dict]) -> 
             nm_standort=day.get("nm_standort"),
         ))
     return schedule_set.id
+
+
+def create_schedule_set(db, ma_name: str, valid_from: str, days: list[dict]) -> int:
+    from database import MAScheduleSet
+
+    valid_from = normalize_valid_from(valid_from)
+    existing = (
+        db.query(MAScheduleSet)
+        .filter_by(ma_name=ma_name, valid_from=valid_from, override_year=None, override_month=None)
+        .first()
+    )
+    if existing:
+        schedule_set = existing
+    else:
+        schedule_set = MAScheduleSet(ma_name=ma_name, valid_from=valid_from)
+        db.add(schedule_set)
+        db.flush()
+    return _save_schedule_set(db, schedule_set, ma_name, days)
+
+
+def create_month_schedule_override(db, ma_name: str, year: int, month: int, days: list[dict]) -> int:
+    from database import MAScheduleSet
+
+    existing = (
+        db.query(MAScheduleSet)
+        .filter_by(ma_name=ma_name, override_year=year, override_month=month)
+        .first()
+    )
+    if existing:
+        schedule_set = existing
+    else:
+        schedule_set = MAScheduleSet(
+            ma_name=ma_name,
+            valid_from=month_start_iso(year, month),
+            override_year=year,
+            override_month=month,
+        )
+        db.add(schedule_set)
+        db.flush()
+    return _save_schedule_set(db, schedule_set, ma_name, days)
+
+
+def list_schedule_versions(db, ma_name: str) -> list[dict]:
+    from database import MAScheduleSet
+
+    sets = (
+        db.query(MAScheduleSet)
+        .filter_by(ma_name=ma_name)
+        .order_by(MAScheduleSet.valid_from.desc())
+        .all()
+    )
+    versions = []
+    for s in sets:
+        if s.override_year and s.override_month:
+            from calc import MONTH_NAMES_DE
+            label = f"Nur {MONTH_NAMES_DE[s.override_month]} {s.override_year}"
+            versions.append({
+                "type": "month",
+                "year": s.override_year,
+                "month": s.override_month,
+                "label": label,
+            })
+        else:
+            versions.append({
+                "type": "from",
+                "valid_from": s.valid_from[:7],
+                "label": f"Ab {format_valid_from_label(s.valid_from)}",
+            })
+    return versions

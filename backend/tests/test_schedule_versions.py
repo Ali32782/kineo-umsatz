@@ -5,7 +5,7 @@ _test_dir = tempfile.mkdtemp(prefix="kineo-sched-test-")
 os.environ["DATA_DIR"] = _test_dir
 
 from database import init_db, SessionLocal, MAScheduleEntry, MAScheduleSet, Base, engine  # noqa: E402
-from schedule_utils import create_schedule_set, get_schedule_entries_for_month  # noqa: E402
+from schedule_utils import create_schedule_set, get_schedule_entries_for_month, create_month_schedule_override  # noqa: E402
 from calc import get_pattern  # noqa: E402
 
 
@@ -37,5 +37,29 @@ def test_schedule_version_applies_from_month():
     finally:
         db.query(MAScheduleEntry).filter_by(ma_name="Version.Test").delete()
         db.query(MAScheduleSet).filter_by(ma_name="Version.Test").delete()
+        db.commit()
+        db.close()
+
+
+def test_month_override_takes_priority_over_version():
+    db = SessionLocal()
+    try:
+        create_schedule_set(db, "Override.Test", "2026-01", [
+            {"weekday": 0, "vm_pct": 0.10, "vm_standort": "Seefeld", "nm_pct": 0.10, "nm_standort": "Seefeld"},
+        ])
+        create_month_schedule_override(db, "Override.Test", 2026, 3, [
+            {"weekday": 0, "vm_pct": 0.10, "vm_standort": "Thalwil", "nm_pct": 0.10, "nm_standort": "Thalwil"},
+        ])
+        db.commit()
+
+        feb = get_schedule_entries_for_month("Override.Test", 2026, 2, db)
+        mar = get_schedule_entries_for_month("Override.Test", 2026, 3, db)
+        apr = get_schedule_entries_for_month("Override.Test", 2026, 4, db)
+        assert feb[0].vm_standort == "Seefeld"
+        assert mar[0].vm_standort == "Thalwil"
+        assert apr[0].vm_standort == "Seefeld"
+    finally:
+        db.query(MAScheduleEntry).filter_by(ma_name="Override.Test").delete()
+        db.query(MAScheduleSet).filter_by(ma_name="Override.Test").delete()
         db.commit()
         db.close()
