@@ -197,11 +197,11 @@ def is_employed_in_month(
 
     return True
 
-def get_pattern(name: str, m_num: int, db=None) -> dict:
+def get_pattern(name: str, year: int, m_num: int, db=None) -> dict:
     base = dict(MA_PATTERNS.get(name, {}))
     if db is not None:
-        from database import MAScheduleEntry
-        entries = db.query(MAScheduleEntry).filter_by(ma_name=name).all()
+        from schedule_utils import get_schedule_entries_for_month
+        entries = get_schedule_entries_for_month(name, year, m_num, db)
         if entries:
             sched = pattern_from_schedule(entries)
             sched["mgmt"] = base.get("mgmt", 0)
@@ -213,7 +213,7 @@ def get_pattern(name: str, m_num: int, db=None) -> dict:
     return base
 
 def compute_soll_tage(name: str, year: int, m_num: int, db=None) -> float:
-    pat = get_pattern(name, m_num, db=db)
+    pat = get_pattern(name, year, m_num, db=db)
     if not pat:
         return 0.0
     ein = get_eintritt(name, year, db=db)
@@ -258,7 +258,7 @@ def compute_zeg(
     db=None,
 ) -> dict:
     soll = compute_soll_tage(name, year, m_num, db=db)
-    pat = get_pattern(name, m_num, db=db)
+    pat = get_pattern(name, year, m_num, db=db)
     bg = sum([pat.get(k,0) for k in WEEKDAY_KEYS])
 
     mgmt_t = pat.get("mgmt", 0) / 100 * soll

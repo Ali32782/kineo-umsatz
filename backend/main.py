@@ -9,7 +9,7 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 import os, io, json
 
-from database import get_db, init_db, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, Feiertag, Notification, BilatData
+from database import get_db, init_db, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, MAScheduleSet, Feiertag, Notification, BilatData
 from calc import (
     compute_zeg, compute_soll_tage, parse_csv_umsatz,
     zeg_color, MONTH_NAMES_DE, MA_PATTERNS, get_standort_splits, get_standort_fte_weights,
@@ -250,13 +250,11 @@ def get_dashboard(
             **zeg,
         })
 
-    # Load schedule for multi-standort splitting
-    schedule_rows = db.query(MAScheduleEntry).all()
+    # Load schedule for multi-standort splitting (pro Monat die gültige Version)
     schedule_map = {}
-    for s in schedule_rows:
-        if s.ma_name not in schedule_map:
-            schedule_map[s.ma_name] = []
-        schedule_map[s.ma_name].append(s)
+    for ma in mas:
+        from schedule_utils import get_schedule_entries_for_month
+        schedule_map[ma.name] = get_schedule_entries_for_month(ma.name, year, month, db)
 
     # Build multi-standort ma_data entries
     ma_data_expanded = []
@@ -705,33 +703,54 @@ class ScheduleDay(BaseModel):
     nm_pct: float = 0.0
     nm_standort: Optional[str] = None
 
+class ScheduleSave(BaseModel):
+    valid_from: str  # YYYY-MM
+    days: List[ScheduleDay]
+
 @app.get("/api/admin/schedule/{ma_name}")
 def get_schedule(ma_name: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role != "ceo":
         raise HTTPException(status_code=403, detail="Keine Berechtigung")
-    entries = db.query(MAScheduleEntry).filter_by(ma_name=ma_name).order_by(MAScheduleEntry.weekday).all()
-    if not entries:
-        # Return defaults from calc.py
-        from calc import MA_PATTERNS, day_pct_to_halves
-        pat = MA_PATTERNS.get(ma_name, {})
-        days=[]
-        for wd in range(5):
-            day_map={0:"mo",1:"di",2:"mi",3:"do",4:"fr"}
-            vm, nm = day_pct_to_halves(pat.get(day_map[wd], 0) or 0)
-            days.append({"weekday":wd,"vm_pct":vm,"vm_standort":None,"nm_pct":nm,"nm_standort":None})
-        return days
-    return [{"weekday":e.weekday,"vm_pct":e.vm_pct,"vm_standort":e.vm_standort,
-             "nm_pct":e.nm_pct,"nm_standort":e.nm_standort} for e in entries]
+    from schedule_utils import format_valid_from_label
+    versions = (
+        db.query(MAScheduleSet)
+        .filter_by(ma_name=ma_name)
+        .order_by(MAScheduleSet.valid_from.desc())
+        .all()
+    )
+    if versions:
+        latest = versions[0]
+        entries = db.query(MAScheduleEntry).filter_by(schedule_set_id=latest.id).order_by(MAScheduleEntry.weekday).all()
+        return {
+            "days": [{"weekday": e.weekday, "vm_pct": e.vm_pct, "vm_standort": e.vm_standort,
+                      "nm_pct": e.nm_pct, "nm_standort": e.nm_standort} for e in entries],
+            "valid_from": latest.valid_from[:7],
+            "versions": [{"valid_from": v.valid_from[:7], "label": format_valid_from_label(v.valid_from)} for v in versions],
+        }
+    # Return defaults from calc.py
+    from calc import MA_PATTERNS, day_pct_to_halves
+    pat = MA_PATTERNS.get(ma_name, {})
+    days = []
+    for wd in range(5):
+        day_map = {0: "mo", 1: "di", 2: "mi", 3: "do", 4: "fr"}
+        vm, nm = day_pct_to_halves(pat.get(day_map[wd], 0) or 0)
+        days.append({"weekday": wd, "vm_pct": vm, "vm_standort": None, "nm_pct": nm, "nm_standort": None})
+    return {"days": days, "valid_from": f"{date.today().year}-{date.today().month:02d}", "versions": []}
 
 @app.post("/api/admin/schedule/{ma_name}")
-def save_schedule(ma_name: str, data: List[ScheduleDay], db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def save_schedule(ma_name: str, payload: ScheduleSave, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role != "ceo":
         raise HTTPException(status_code=403, detail="Keine Berechtigung")
-    db.query(MAScheduleEntry).filter_by(ma_name=ma_name).delete()
-    for day in data:
-        db.add(MAScheduleEntry(ma_name=ma_name, **day.dict()))
+    from schedule_utils import create_schedule_set, format_valid_from_label, normalize_valid_from
+    try:
+        valid_from = normalize_valid_from(payload.valid_from)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    days = [d.dict() for d in payload.days]
+    create_schedule_set(db, ma_name, valid_from, days)
     db.commit()
-    return {"message": f"Schedule für {ma_name} gespeichert"}
+    label = format_valid_from_label(valid_from)
+    return {"message": f"Arbeitstag-Muster gespeichert — gilt ab {label}"}
 
 # ── Admin: Feiertage ──────────────────────────────────────────────────────
 class FeiertageEntry(BaseModel):

@@ -805,6 +805,8 @@ function AdminPage() {
   const [editMA, setEditMA] = useState(null)
   const [scheduleMA, setScheduleMA] = useState(null)
   const [schedule, setSchedule] = useState([])
+  const [scheduleValidFrom, setScheduleValidFrom] = useState("")
+  const [scheduleVersions, setScheduleVersions] = useState([])
   const [msg, setMsg] = useState(null)
   const [newMA, setNewMA] = useState({name:"",display_name:"",team:"Seefeld",role:"therapeut",bg_pct:1.0,eintritt:"",austritt:""})
   const [showNewMA, setShowNewMA] = useState(false)
@@ -817,13 +819,20 @@ function AdminPage() {
   useEffect(() => { if (tab === "feiertage") loadFeiertage() }, [feiertagYear, tab])
 
   const loadSchedule = async (name) => {
-    const s = await api(`/api/admin/schedule/${name}`)
-    setSchedule(s); setScheduleMA(name)
+    const res = await api(`/api/admin/schedule/${name}`)
+    setSchedule(res.days || res)
+    setScheduleValidFrom(res.valid_from || `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`)
+    setScheduleVersions(res.versions || [])
+    setScheduleMA(name)
   }
 
   const saveSchedule = async () => {
-    await api(`/api/admin/schedule/${scheduleMA}`, {method:"POST", body:JSON.stringify(schedule)})
-    setMsg({type:"ok",text:"Arbeitstag-Muster gespeichert"}); setScheduleMA(null)
+    const res = await api(`/api/admin/schedule/${scheduleMA}`, {
+      method: "POST",
+      body: JSON.stringify({ valid_from: scheduleValidFrom, days: schedule }),
+    })
+    setMsg({type:"ok", text: res.message || "Arbeitstag-Muster gespeichert"})
+    setScheduleMA(null)
   }
 
   const toggleMA = async (name) => {
@@ -988,6 +997,22 @@ function AdminPage() {
                 <button style={btn("#EEE","#333")} onClick={()=>setScheduleMA(null)}>← Zurück</button>
               </div>
               <ScheduleHelp />
+              <div style={{display:"flex",flexWrap:"wrap",gap:16,alignItems:"flex-end",marginBottom:16,padding:"12px 16px",background:"#F8F9FA",borderRadius:8,border:"1px solid #E8E8E8"}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:4}}>Gültig ab (Monat)</div>
+                  <input type="month" value={scheduleValidFrom} onChange={e=>setScheduleValidFrom(e.target.value)}
+                    style={inp()} />
+                </div>
+                <div style={{fontSize:12,color:"#666",maxWidth:420,lineHeight:1.5}}>
+                  Gilt ab dem <strong>1. des gewählten Monats</strong> für FTE, Standorte und Soll-Tage.
+                  Frühere Monate behalten die bisherige Version.
+                </div>
+                {scheduleVersions.length > 1 && (
+                  <div style={{fontSize:11,color:"#888"}}>
+                    Versionen: {scheduleVersions.map(v => v.label).join(" · ")}
+                  </div>
+                )}
+              </div>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr style={{background:CD.primary,color:"white"}}>
                   <th style={{padding:"10px 14px",textAlign:"left"}}>Tag</th>

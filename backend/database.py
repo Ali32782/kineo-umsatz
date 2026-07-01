@@ -76,15 +76,27 @@ class MAPattern(Base):
     leit_h = Column(Float, default=0.0)
 
 
+class MAScheduleSet(Base):
+    """Versionierter Wochen-Arbeitsplan — gilt ab valid_from (YYYY-MM-01) für alle folgenden Monate."""
+    __tablename__ = "ma_schedule_sets"
+    id = Column(Integer, primary_key=True)
+    ma_name = Column(String, nullable=False, index=True)
+    valid_from = Column(String, nullable=False)  # YYYY-MM-01
+    created_at = Column(DateTime, default=datetime.utcnow)
+    entries = relationship("MAScheduleEntry", back_populates="schedule_set", cascade="all, delete-orphan")
+
+
 class MAScheduleEntry(Base):
     __tablename__ = "ma_schedule"
     id = Column(Integer, primary_key=True)
     ma_name = Column(String, nullable=False)
+    schedule_set_id = Column(Integer, ForeignKey("ma_schedule_sets.id"), nullable=True)
     weekday = Column(Integer, nullable=False)  # 0=Mo, 1=Di, 2=Mi, 3=Do, 4=Fr
     vm_pct = Column(Float, default=0.0)
     vm_standort = Column(String, nullable=True)
     nm_pct = Column(Float, default=0.0)
     nm_standort = Column(String, nullable=True)
+    schedule_set = relationship("MAScheduleSet", back_populates="entries")
 
 class Feiertag(Base):
     __tablename__ = "feiertage"
@@ -145,27 +157,55 @@ def migrate_schema():
     """Lightweight SQLite migrations for existing databases."""
     from sqlalchemy import inspect, text
     inspector = inspect(engine)
-    if not inspector.has_table("bilat_data"):
-        return
-    cols = {c["name"] for c in inspector.get_columns("bilat_data")}
-    with engine.begin() as conn:
-        if "period_label" not in cols:
-            conn.execute(text("ALTER TABLE bilat_data ADD COLUMN period_label VARCHAR"))
-        # Backfill period_label from legacy half column
-        if "half" in cols:
-            conn.execute(text("""
-                UPDATE bilat_data
-                SET period_label = CASE
-                    WHEN half = 1 THEN 'HJ1 ' || year
-                    WHEN half = 2 THEN 'HJ2 ' || year
-                    ELSE NULL
-                END
-                WHERE period_label IS NULL AND half IS NOT NULL
-            """))
+    if inspector.has_table("bilat_data"):
+        cols = {c["name"] for c in inspector.get_columns("bilat_data")}
+        with engine.begin() as conn:
+            if "period_label" not in cols:
+                conn.execute(text("ALTER TABLE bilat_data ADD COLUMN period_label VARCHAR"))
+            if "half" in cols:
+                conn.execute(text("""
+                    UPDATE bilat_data
+                    SET period_label = CASE
+                        WHEN half = 1 THEN 'HJ1 ' || year
+                        WHEN half = 2 THEN 'HJ2 ' || year
+                        ELSE NULL
+                    END
+                    WHERE period_label IS NULL AND half IS NOT NULL
+                """))
+    if inspector.has_table("ma_schedule"):
+        cols = {c["name"] for c in inspector.get_columns("ma_schedule")}
+        with engine.begin() as conn:
+            if "schedule_set_id" not in cols:
+                conn.execute(text("ALTER TABLE ma_schedule ADD COLUMN schedule_set_id INTEGER"))
+    migrate_legacy_schedule_sets()
+
+def migrate_legacy_schedule_sets():
+    """Bestehende ma_schedule-Einträge → Version «gültig ab 2026-01»."""
+    db = SessionLocal()
+    try:
+        from schedule_utils import create_schedule_set
+        ma_names = {r[0] for r in db.query(MAScheduleEntry.ma_name).filter(MAScheduleEntry.schedule_set_id.is_(None)).distinct()}
+        for ma_name in ma_names:
+            if db.query(MAScheduleSet).filter_by(ma_name=ma_name).first():
+                continue
+            legacy = db.query(MAScheduleEntry).filter_by(ma_name=ma_name, schedule_set_id=None).all()
+            if not legacy:
+                continue
+            days = [{
+                "weekday": e.weekday, "vm_pct": e.vm_pct, "vm_standort": e.vm_standort,
+                "nm_pct": e.nm_pct, "nm_standort": e.nm_standort,
+            } for e in legacy]
+            create_schedule_set(db, ma_name, "2026-01", days)
+            for e in legacy:
+                db.delete(e)
+        db.commit()
+    finally:
+        db.close()
 
 def seed_schedules_from_excel():
-    """Arbeitspläne aus Standort-Übersicht 2026 (Excel) in die DB schreiben."""
+    """Arbeitspläne aus Standort-Übersicht 2026 (Excel) — nur wenn noch keine Version existiert."""
     from schedule_seed import load_excel_schedules
+    from schedule_utils import create_schedule_set
 
     schedules = load_excel_schedules()
     if not schedules:
@@ -174,9 +214,9 @@ def seed_schedules_from_excel():
 
     db = SessionLocal()
     for ma_name, days in schedules.items():
-        db.query(MAScheduleEntry).filter_by(ma_name=ma_name).delete()
-        for day in days:
-            db.add(MAScheduleEntry(ma_name=ma_name, **day))
+        if db.query(MAScheduleSet).filter_by(ma_name=ma_name).first():
+            continue
+        create_schedule_set(db, ma_name, "2026-01", days)
     meike = db.query(MAStammdaten).filter_by(name="Meike.V").first()
     if meike and meike.team == "Thalwil":
         meike.team = "Seefeld"
@@ -186,25 +226,26 @@ def seed_schedules_from_excel():
 
 def seed_all_ma_schedules_fallback():
     """Fallback wenn Excel fehlt: MA_PATTERNS + Haupt-Team als Standort."""
-    from calc import MA_PATTERNS, day_pct_to_halves, schedule_needs_reseed
+    from calc import MA_PATTERNS, day_pct_to_halves
+    from schedule_utils import create_schedule_set
     db = SessionLocal()
     day_keys = {0: "mo", 1: "di", 2: "mi", 3: "do", 4: "fr"}
     mas = db.query(MAStammdaten).filter_by(is_active=True).all()
     for ma in mas:
-        entries = db.query(MAScheduleEntry).filter_by(ma_name=ma.name).all()
-        if not schedule_needs_reseed(entries):
+        if db.query(MAScheduleSet).filter_by(ma_name=ma.name).first():
             continue
-        db.query(MAScheduleEntry).filter_by(ma_name=ma.name).delete()
         pat = MA_PATTERNS.get(ma.name, {})
         standort = ma.team if ma.team not in ("Management", "Office") else None
+        days = []
         for wd, key in day_keys.items():
             vm, nm = day_pct_to_halves(pat.get(key, 0) or 0)
             if vm or nm:
-                db.add(MAScheduleEntry(
-                    ma_name=ma.name, weekday=wd,
-                    vm_pct=vm, vm_standort=standort if vm else None,
-                    nm_pct=nm, nm_standort=standort if nm else None,
-                ))
+                days.append({
+                    "weekday": wd, "vm_pct": vm, "vm_standort": standort if vm else None,
+                    "nm_pct": nm, "nm_standort": standort if nm else None,
+                })
+        if days:
+            create_schedule_set(db, ma.name, "2026-01", days)
     db.commit()
     db.close()
 

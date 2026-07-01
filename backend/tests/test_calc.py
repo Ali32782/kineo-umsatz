@@ -124,7 +124,7 @@ def test_schedule_overrides_hardcoded_pattern():
                 ma_name="Test.MA", weekday=wd, vm_pct=0.10, nm_pct=0.10,
             ))
         db.commit()
-        pat = get_pattern("Test.MA", 5, db=db)
+        pat = get_pattern("Test.MA", 2026, 5, db=db)
         assert pat["mo"] == 0.20
         assert pat["fr"] == 0.20
     finally:

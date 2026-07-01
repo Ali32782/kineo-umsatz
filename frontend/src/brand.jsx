@@ -55,6 +55,12 @@ export function ScheduleHelp() {
     }}>
       <Info size={18} color={CD.primary} style={{ flexShrink: 0, marginTop: 2 }} />
       <div>
+        <strong>Wann gilt eine Änderung?</strong>
+        <p style={{ margin: "6px 0 8px" }}>
+          Beim Speichern wählst du <strong>«Gültig ab»</strong> (Monat). Das Muster gilt dann ab dem
+          <strong> 1. dieses Monats</strong> für FTE, Standortverteilung und Soll-Tage.
+          Monate davor bleiben unverändert (ältere Version).
+        </p>
         <strong>Was bedeuten die Prozent-Werte?</strong>
         <p style={{ margin: "6px 0 0" }}>
           Die Woche hat <strong>10 Halbtage</strong> (Mo–Fr, je Vormittag + Nachmittag) = 100&nbsp;%.
