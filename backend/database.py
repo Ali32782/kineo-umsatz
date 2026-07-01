@@ -163,50 +163,37 @@ def migrate_schema():
                 WHERE period_label IS NULL AND half IS NOT NULL
             """))
 
-def seed_multi_standort_schedules():
-    """Seed Arbeitstag-Muster für MA mit mehreren Standorten (falls noch nicht erfasst)."""
-    from calc import MA_STANDORT_SPLITS
+def seed_schedules_from_excel():
+    """Arbeitspläne aus Standort-Übersicht 2026 (Excel) in die DB schreiben."""
+    from schedule_seed import load_excel_schedules, schedule_needs_excel_reseed
+
+    schedules = load_excel_schedules()
+    if not schedules:
+        seed_all_ma_schedules_fallback()
+        return
+
     db = SessionLocal()
-    # Halbtag = 10 % der Woche (0.10); ganzer Tag VM+NM = 20 % (0.20)
-    day_patterns = {
-        "Helen.S": [
-            (1, 0.10, "Zollikon", 0.10, "Zollikon"),
-            (2, 0.10, "Seefeld", 0.10, "Seefeld"),
-            (3, 0.10, "Zollikon", 0.10, "Zollikon"),
-            (4, 0.10, "Seefeld", 0.10, "Seefeld"),
-        ],
-        "Meike.V": [
-            (0, 0.10, "Zollikon", 0.10, "Zollikon"),
-            (1, 0.10, "Seefeld", 0.10, "Seefeld"),
-            (2, 0.10, "Zollikon", 0.10, "Zollikon"),
-            (3, 0.10, "Seefeld", 0.10, "Seefeld"),
-        ],
-    }
-    for ma_name in MA_STANDORT_SPLITS:
+    for ma_name, days in schedules.items():
         entries = db.query(MAScheduleEntry).filter_by(ma_name=ma_name).all()
-        if any(e.vm_standort or e.nm_standort for e in entries):
+        if not schedule_needs_excel_reseed(entries, days):
             continue
         db.query(MAScheduleEntry).filter_by(ma_name=ma_name).delete()
-        for wd, vm, vs, nm, ns in day_patterns.get(ma_name, []):
-            db.add(MAScheduleEntry(
-                ma_name=ma_name, weekday=wd,
-                vm_pct=vm, vm_standort=vs, nm_pct=nm, nm_standort=ns,
-            ))
+        for day in days:
+            db.add(MAScheduleEntry(ma_name=ma_name, **day))
     meike = db.query(MAStammdaten).filter_by(name="Meike.V").first()
     if meike and meike.team == "Thalwil":
         meike.team = "Seefeld"
     db.commit()
     db.close()
 
-def seed_all_ma_schedules():
-    """Alle MA-Arbeitspläne aus MA_PATTERNS (10 % pro Halbtag, Standort = Team)."""
-    from calc import MA_PATTERNS, MA_STANDORT_SPLITS, day_pct_to_halves, schedule_needs_reseed
+
+def seed_all_ma_schedules_fallback():
+    """Fallback wenn Excel fehlt: MA_PATTERNS + Haupt-Team als Standort."""
+    from calc import MA_PATTERNS, day_pct_to_halves, schedule_needs_reseed
     db = SessionLocal()
     day_keys = {0: "mo", 1: "di", 2: "mi", 3: "do", 4: "fr"}
     mas = db.query(MAStammdaten).filter_by(is_active=True).all()
     for ma in mas:
-        if ma.name in MA_STANDORT_SPLITS:
-            continue
         entries = db.query(MAScheduleEntry).filter_by(ma_name=ma.name).all()
         if not schedule_needs_reseed(entries):
             continue
@@ -244,8 +231,7 @@ def init_db():
     migrate_schema()
     migrate_schedule_halbtag_units()
     seed_initial_data()
-    seed_multi_standort_schedules()
-    seed_all_ma_schedules()
+    seed_schedules_from_excel()
 
 def seed_initial_data():
     """Seed users and MA Stammdaten on first run"""

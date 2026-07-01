@@ -20,7 +20,7 @@ from calc import (  # noqa: E402
     day_pct_to_halves,
     schedule_needs_reseed,
 )
-from database import init_db, SessionLocal, MAScheduleEntry, Feiertag, Base, engine, seed_all_ma_schedules  # noqa: E402
+from database import init_db, SessionLocal, MAScheduleEntry, Feiertag, Base, engine, seed_schedules_from_excel  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -131,16 +131,14 @@ def test_schedule_overrides_hardcoded_pattern():
         db.close()
 
 
-def test_seed_all_ma_schedules_barbara():
-    seed_all_ma_schedules()
+def test_seed_schedules_from_excel_emma():
+    seed_schedules_from_excel()
     db = SessionLocal()
     try:
-        entries = db.query(MAScheduleEntry).filter_by(ma_name="Barbara.V").order_by(MAScheduleEntry.weekday).all()
-        assert len(entries) == 4  # Mo–Do
-        for e in entries:
-            assert e.vm_pct == 0.10
-            assert e.nm_pct == 0.10
-            assert e.vm_standort == "Wipkingen"
+        entries = db.query(MAScheduleEntry).filter_by(ma_name="Emma.L").order_by(MAScheduleEntry.weekday).all()
+        assert len(entries) == 5
+        assert entries[1].vm_standort == "Stauffacher"
+        assert entries[0].vm_standort == "Thalwil"
     finally:
         db.close()
 
