@@ -294,7 +294,7 @@ function DashboardPage() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: 28 }}>
         {[
           { label: "Gesamtumsatz", value: `CHF ${(data.total_umsatz||0).toLocaleString("de-CH")}`, icon: "💰" },
-          { label: "Aktive MA", value: data.ma_data?.length || 0, icon: "👥" },
+          { label: "FTE Total", value: data.total_fte ? data.total_fte.toFixed(1) : (data.ma_data?.reduce((s,m)=>s+(m.bg_pct||0),0)||0).toFixed(1), icon: "👥" },
           { label: "Monat", value: `${data.month_name} ${year}`, icon: "📅" },
         ].map(card => (
           <div key={card.label} style={{ background: "white", borderRadius: 8, padding: "20px 24px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", gap: 16 }}>

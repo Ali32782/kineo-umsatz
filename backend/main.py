@@ -305,6 +305,8 @@ def get_dashboard(
         for t, v in teams.items()
     }
 
+    total_fte_all = round(sum(ma.bg_pct or 0 for ma in mas), 1)
+
     return {
         "year": year,
         "month": month,
@@ -312,6 +314,7 @@ def get_dashboard(
         "ma_data": ma_data_expanded,
         "team_summary": team_summary,
         "total_umsatz": round(sum(r["umsatz"] for r in results)),
+        "total_fte": total_fte_all,
     }
 
 # ── YTD Overview ──────────────────────────────────────────────────────────
