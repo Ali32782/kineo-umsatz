@@ -255,9 +255,6 @@ function DashboardPage() {
   const [month, setMonth] = useState(now.getMonth() === 0 ? 12 : now.getMonth()) // previous month
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [filterStandort, setFilterStandort] = useState("Alle")
-  const [hideNoData, setHideNoData] = useState(false)
-  const [hideInactive, setHideInactive] = useState(true)
 
   useEffect(() => {
     setLoading(true)
@@ -269,14 +266,9 @@ function DashboardPage() {
   if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#888" }}>Lade Daten…</div>
   if (!data) return null
 
-  const STANDORTE_ORDER = ["Seefeld","Wipkingen","Thalwil","Escher Wyss","Stauffacher","Zollikon"]
   const teams = Object.entries(data.team_summary || {})
     .filter(([t]) => t !== "Management")
-    .filter(([t]) => filterStandort === "Alle" || t === filterStandort)
-    .sort(([a],[b]) => {
-      const ia = STANDORTE_ORDER.indexOf(a); const ib = STANDORTE_ORDER.indexOf(b)
-      return (ia===-1?99:ia) - (ib===-1?99:ib)
-    })
+    .sort(([,a],[,b]) => (b.zeg_b_avg||0) - (a.zeg_b_avg||0))
 
   return (
     <div>
@@ -315,36 +307,10 @@ function DashboardPage() {
         ))}
       </div>
 
-      {/* Filter Bar */}
-      <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
-        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-          {["Alle","Seefeld","Wipkingen","Thalwil","Escher Wyss","Stauffacher","Zollikon"].map(s => (
-            <button key={s} onClick={() => setFilterStandort(s)} style={{
-              padding:"5px 12px", border:`1.5px solid ${filterStandort===s?"#1C5B7A":"#DDD"}`,
-              borderRadius:4, cursor:"pointer", fontSize:12, fontWeight:filterStandort===s?700:400,
-              background:filterStandort===s?"#1C5B7A":"white", color:filterStandort===s?"white":"#555"
-            }}>{s}</button>
-          ))}
-        </div>
-        <div style={{ marginLeft:"auto", display:"flex", gap:16, alignItems:"center" }}>
-          <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:"#555", cursor:"pointer" }}>
-            <input type="checkbox" checked={hideNoData} onChange={e=>setHideNoData(e.target.checked)} style={{accentColor:"#1C5B7A"}} />
-            Ohne Daten ausblenden
-          </label>
-          <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:"#555", cursor:"pointer" }}>
-            <input type="checkbox" checked={hideInactive} onChange={e=>setHideInactive(e.target.checked)} style={{accentColor:"#1C5B7A"}} />
-            Inaktive ausblenden
-          </label>
-        </div>
-      </div>
-
       {/* Team overview */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 20, marginBottom: 28 }}>
         {teams.map(([team, stats]) => {
-          let teamMAs = (data.ma_data||[]).filter(m => m.team === team)
-          if (hideNoData) teamMAs = teamMAs.filter(m => m.umsatz > 0)
-          if (hideInactive) teamMAs = teamMAs.filter(m => m.zeg_b !== null || m.umsatz > 0)
-          if (teamMAs.length === 0) return null
+          const teamMAs = (data.ma_data||[]).filter(m => m.team === team)
           const c = ZEG_COLORS[stats.color || "gray"]
           return (
             <div key={team} style={{ background: "white", borderRadius: 8, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
@@ -561,40 +527,98 @@ function UploadPage() {
 // ── YTD Overview Page ──────────────────────────────────────────────────────
 function OverviewPage() {
   const [data, setData] = useState(null)
-  const [filterStandort, setFilterStandort] = useState("Alle")
+  const [filterTeam, setFilterTeam] = useState("Alle")
   const [filterRole, setFilterRole] = useState("Alle")
-  const [sortBy, setSortBy] = useState("name")
+  const [sortKey, setSortKey] = useState("name")
+  const [sortDir, setSortDir] = useState("asc")
   const months = ["Jan","Feb","Mrz","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"]
 
   useEffect(() => { api("/api/ytd/2026").then(setData).catch(console.error) }, [])
 
   if (!data) return <div style={{ textAlign: "center", padding: 60, color: "#888" }}>Lade…</div>
 
-  // Filter MA
-  let maList = data.ma_data || []
-  if (filterStandort !== "Alle") maList = maList.filter(m => m.team === filterStandort)
-  if (filterRole !== "Alle") maList = maList.filter(m => m.role === filterRole)
-  if (sortBy === "zeg") maList = [...maList].sort((a,b) => (b.avg_zeg_b||0)-(a.avg_zeg_b||0))
-  if (sortBy === "umsatz") maList = [...maList].sort((a,b) => (b.total_umsatz||0)-(a.total_umsatz||0))
-  if (sortBy === "name") maList = [...maList].sort((a,b) => a.name.localeCompare(b.name))
+  const allMA = data.ma_data || []
+  const teams = ["Alle", ...Array.from(new Set(allMA.map(m => m.team))).sort()]
+  const roles = ["Alle", ...Array.from(new Set(allMA.map(m => m.role).filter(Boolean))).sort()]
+
+  let rows = allMA.filter(m =>
+    (filterTeam === "Alle" || m.team === filterTeam) &&
+    (filterRole === "Alle" || m.role === filterRole)
+  )
+
+  const dir = sortDir === "asc" ? 1 : -1
+  rows = [...rows].sort((a, b) => {
+    if (sortKey === "name") return dir * (a.display_name||"").localeCompare(b.display_name||"")
+    if (sortKey === "team") return dir * (a.team||"").localeCompare(b.team||"")
+    if (sortKey === "avg") return dir * ((a.avg_zeg_b||0) - (b.avg_zeg_b||0))
+    if (sortKey.startsWith("m")) {
+      const mi = parseInt(sortKey.slice(1), 10)
+      const av = (a.monthly||[])[mi]?.zeg_b ?? -1
+      const bv = (b.monthly||[])[mi]?.zeg_b ?? -1
+      return dir * (av - bv)
+    }
+    return 0
+  })
+
+  const toggleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc")
+    else { setSortKey(key); setSortDir("asc") }
+  }
+
+  const SortArrow = ({ k }) => sortKey === k ? <span style={{ marginLeft: 4 }}>{sortDir === "asc" ? "▲" : "▼"}</span> : null
+
+  const selectStyle = { padding: "6px 10px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12, background: "white", color: "#333" }
 
   return (
     <div>
       <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.03em" }}>Jahresübersicht 2026</h1>
-      <div style={{ color: "#888", marginBottom: 16, fontSize: 13 }}>ZEG-B pro Monat und Mitarbeiter</div>
+      <div style={{ color: "#888", marginBottom: 18, fontSize: 13 }}>ZEG-B pro Monat und Mitarbeiter</div>
+
+      <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+        <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
+          Standort:
+          <select value={filterTeam} onChange={e => setFilterTeam(e.target.value)} style={selectStyle}>
+            {teams.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
+          Rolle:
+          <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={selectStyle}>
+            {roles.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </label>
+        {(filterTeam !== "Alle" || filterRole !== "Alle") && (
+          <button onClick={() => { setFilterTeam("Alle"); setFilterRole("Alle") }}
+            style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #DDD", background: "white", fontSize: 12, color: "#888", cursor: "pointer" }}>
+            Filter zurücksetzen
+          </button>
+        )}
+        <div style={{ marginLeft: "auto", fontSize: 12, color: "#888" }}>{rows.length} Mitarbeiter</div>
+      </div>
+
       <div style={{ background: "white", borderRadius: 8, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "#1C5B7A", color: "white" }}>
-                <th style={{ padding: "12px 16px", textAlign: "left", position: "sticky", left: 0, background: "#1C5B7A", zIndex: 2, minWidth: 140 }}>Mitarbeiter</th>
-                <th style={{ padding: "12px 8px", textAlign: "center", minWidth: 60 }}>Team</th>
-                {months.map(m => <th key={m} style={{ padding: "12px 8px", textAlign: "center", minWidth: 68 }}>{m}</th>)}
-                <th style={{ padding: "12px 12px", textAlign: "center", minWidth: 80, borderLeft: "2px solid rgba(255,255,255,0.3)" }}>Ø ZEG-B</th>
+                <th onClick={() => toggleSort("name")} style={{ padding: "12px 16px", textAlign: "left", position: "sticky", left: 0, background: "#1C5B7A", zIndex: 2, minWidth: 140, cursor: "pointer", userSelect: "none" }}>
+                  Mitarbeiter<SortArrow k="name" />
+                </th>
+                <th onClick={() => toggleSort("team")} style={{ padding: "12px 8px", textAlign: "center", minWidth: 60, cursor: "pointer", userSelect: "none" }}>
+                  Team<SortArrow k="team" />
+                </th>
+                {months.map((m, mi) => (
+                  <th key={m} onClick={() => toggleSort("m"+mi)} style={{ padding: "12px 8px", textAlign: "center", minWidth: 68, cursor: "pointer", userSelect: "none" }}>
+                    {m}<SortArrow k={"m"+mi} />
+                  </th>
+                ))}
+                <th onClick={() => toggleSort("avg")} style={{ padding: "12px 12px", textAlign: "center", minWidth: 80, borderLeft: "2px solid rgba(255,255,255,0.3)", cursor: "pointer", userSelect: "none" }}>
+                  Ø ZEG-B<SortArrow k="avg" />
+                </th>
               </tr>
             </thead>
             <tbody>
-              {(data.ma_data||[]).sort((a,b)=>a.team.localeCompare(b.team)||(a.display_name||"").localeCompare(b.display_name||"")).map((ma, i) => (
+              {rows.map((ma, i) => (
                 <tr key={ma.name} style={{ background: i%2===0?"white":"#F8F9FA" }}>
                   <td style={{ padding: "8px 16px", fontWeight: 600, position: "sticky", left: 0, background: i%2===0?"white":"#F8F9FA", zIndex: 1, borderRight: "1px solid #EEE" }}>{ma.display_name}</td>
                   <td style={{ padding: "8px 8px", textAlign: "center", color: "#888", fontSize: 11 }}>{ma.team}</td>
@@ -608,6 +632,9 @@ function OverviewPage() {
                   </td>
                 </tr>
               ))}
+              {rows.length === 0 && (
+                <tr><td colSpan={14} style={{ padding: 24, textAlign: "center", color: "#888" }}>Keine Mitarbeiter für diese Filterauswahl</td></tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -1085,29 +1112,48 @@ const KAT_LABELS = {
 }
 
 function BilatDataPage() {
+  const now = new Date()
+  const defaultPeriod = `${now.getMonth() < 6 ? "HJ1" : "HJ2"} ${now.getFullYear()}`
   const [overview, setOverview] = useState([])
   const [selected, setSelected] = useState(null)
   const [bilatData, setBilatData] = useState({})
   const [msg, setMsg] = useState(null)
-  const [year] = useState(2026)
-  const [half] = useState(1)
+  const [year, setYear] = useState(now.getFullYear())
+  const [period, setPeriod] = useState(defaultPeriod)
+  const [periods, setPeriods] = useState([defaultPeriod])
+  const [newPeriod, setNewPeriod] = useState("")
+  const [showNewPeriod, setShowNewPeriod] = useState(false)
 
   useEffect(() => {
-    api(`/api/bilat-overview/${year}/${half}`).then(setOverview).catch(console.error)
-  }, [year, half])
+    api("/api/bilat-periods").then(p => { setPeriods(p); if (!p.includes(period)) setPeriod(p[0] || defaultPeriod) }).catch(console.error)
+  }, [])
+
+  useEffect(() => {
+    if (period) api(`/api/bilat-overview/${year}/${encodeURIComponent(period)}`).then(setOverview).catch(console.error)
+  }, [year, period])
 
   const openBilat = async (ma) => {
-    const data = await api(`/api/bilat/${ma.name}/${year}/${half}`).catch(()=>({}))
+    const data = await api(`/api/bilat/${ma.name}/${year}/${encodeURIComponent(period)}`).catch(()=>({}))
     setBilatData(data || {})
     setSelected(ma)
   }
 
   const save = async () => {
     try {
-      await api(`/api/bilat/${selected.name}/${year}/${half}`, {method:"POST", body:JSON.stringify(bilatData)})
+      await api(`/api/bilat/${selected.name}/${year}/${encodeURIComponent(period)}`, {method:"POST", body:JSON.stringify(bilatData)})
       setMsg({type:"ok",text:"Bilateral gespeichert"})
-      api(`/api/bilat-overview/${year}/${half}`).then(setOverview)
+      api(`/api/bilat-overview/${year}/${encodeURIComponent(period)}`).then(setOverview)
+      api("/api/bilat-periods").then(setPeriods)
     } catch(e) { setMsg({type:"err",text:e.message}) }
+  }
+
+  const addPeriod = () => {
+    if (!newPeriod.trim()) return
+    const p = newPeriod.trim()
+    setPeriods(prev => [...new Set([...prev, p])])
+    setPeriod(p)
+    setNewPeriod("")
+    setShowNewPeriod(false)
   }
 
   const RatingButtons = ({field, label}) => (

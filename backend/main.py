@@ -401,14 +401,14 @@ async def export_excel(
     )
 
 # ── Bilat Export ──────────────────────────────────────────────────────────
-@app.get("/api/export/bilats/{year}/{month}")
+@app.get("/api/export/bilats/{year}/{period_label}/{month}")
 async def export_bilats(
-    year: int, month: int,
+    year: int, period_label: str, month: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     from bilat_export import generate_bilats_zip
-    path = generate_bilats_zip(year, month, db, current_user)
+    path = generate_bilats_zip(year, month, db, current_user, period_label=period_label)
     return FileResponse(
         path,
         media_type="application/zip",
@@ -552,18 +552,33 @@ class BilatInput(BaseModel):
     gespraechseindruck: Optional[str] = None
     naechstes_bilat: Optional[str] = None
 
-@app.get("/api/bilat/{ma_name}/{year}/{half}")
-def get_bilat(ma_name: str, year: int, half: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, half=half).first()
+@app.get("/api/bilat-periods")
+def get_bilat_periods(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Return all existing period_labels for dropdown"""
+    from sqlalchemy import distinct
+    rows = db.query(distinct(BilatData.period_label)).filter(BilatData.period_label != None).order_by(BilatData.period_label.desc()).all()
+    periods = [r[0] for r in rows if r[0]]
+    # Add current default if not present
+    import datetime as dt
+    year = dt.date.today().year
+    half = "HJ1" if dt.date.today().month <= 6 else "HJ2"
+    default = f"{half} {year}"
+    if default not in periods:
+        periods.insert(0, default)
+    return periods
+
+@app.get("/api/bilat/{ma_name}/{year}/{period_label}")
+def get_bilat(ma_name: str, year: int, period_label: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period_label).first()
     if not b: return {}
     return {k: getattr(b,k) for k in BilatInput.__fields__}
 
-@app.post("/api/bilat/{ma_name}/{year}/{half}")
-def save_bilat(ma_name: str, year: int, half: int, data: BilatInput,
+@app.post("/api/bilat/{ma_name}/{year}/{period_label}")
+def save_bilat(ma_name: str, year: int, period_label: str, data: BilatInput,
                db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, half=half).first()
+    b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period_label).first()
     if not b:
-        b = BilatData(ma_name=ma_name, year=year, half=half)
+        b = BilatData(ma_name=ma_name, year=year, period_label=period_label)
         db.add(b)
     for k,v in data.dict().items():
         setattr(b, k, v)
@@ -572,12 +587,12 @@ def save_bilat(ma_name: str, year: int, half: int, data: BilatInput,
     db.commit()
     return {"message": "Bilat gespeichert"}
 
-@app.get("/api/bilat-overview/{year}/{half}")
-def get_bilat_overview(year: int, half: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+@app.get("/api/bilat-overview/{year}/{period_label}")
+def get_bilat_overview(year: int, period_label: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     mas = db.query(MAStammdaten).filter_by(is_active=True).all()
     if current_user.role == "teamlead" and current_user.team:
         mas = [m for m in mas if m.team == current_user.team]
-    bilats = {b.ma_name: b for b in db.query(BilatData).filter_by(year=year, half=half).all()}
+    bilats = {b.ma_name: b for b in db.query(BilatData).filter_by(year=year, period_label=period_label).all()}
     return [{
         "name": m.name, "display_name": m.display_name, "team": m.team,
         "has_data": m.name in bilats,
