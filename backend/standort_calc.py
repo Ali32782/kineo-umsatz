@@ -39,10 +39,9 @@ def expand_ma_standort_rows(
     rows: list[dict] = []
     for standort, fte in fte_weights.items():
         split = umsatz_splits.get(standort, 0)
-        weight = clinical_weights.get(standort, 0)
-        share = weight / total_clinical if total_clinical else split
         umsatz_s = round(umsatz * split, 2)
-        prod_b_s = round(prod_b * share, 2) if prod_b else 0
+        # prod_b mit gleichem Anteil wie Umsatz — sonst ZEG-B verfälscht (z. B. 500 %+)
+        prod_b_s = round(prod_b * split, 2) if prod_b else 0
         zeg_b_s = None
         if prod_b_s > 0 and umsatz_s > 0:
             zeg_b_s = round(umsatz_s / prod_b_s / ZIEL, 4)

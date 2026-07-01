@@ -20,14 +20,15 @@ def _sched(seefeld=0, zollikon=0, office=0):
 
 
 def test_expand_splits_umsatz_and_zeg_per_standort():
-    ma_row = {"name": "Helen.S", "display_name": "Helen S.", "team": "Seefeld", "umsatz": 10000, "prod_b": 8}
+    ma_row = {"name": "Helen.S", "display_name": "Helen S.", "team": "Seefeld", "umsatz": 10000, "prod_b": 8, "zeg_b": 1.2}
     sched = _sched(seefeld=0.10, zollikon=0.10)
     rows = expand_ma_standort_rows(ma_row, 0.2, "Seefeld", sched)
 
     clinical = [r for r in rows if not r["is_office"]]
     assert len(clinical) == 2
     assert sum(r["umsatz"] for r in clinical) == 10000
-    assert all(r["zeg_b"] is not None for r in clinical)
+    for r in clinical:
+        assert abs(r["zeg_b"] - ma_row["zeg_b"]) < 0.01
 
 
 def test_office_row_has_fte_no_umsatz():
