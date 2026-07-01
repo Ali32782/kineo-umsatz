@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext } from "react"
+import { API, CURRENT_YEAR, DEFAULT_YEAR, DEFAULT_MONTH, periodForMonth } from "./config.js"
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000"
 const AuthCtx = createContext(null)
 
 // ── Auth Hook ──────────────────────────────────────────────────────────────
@@ -16,6 +16,24 @@ async function api(path, opts = {}) {
   if (res.status === 401) { localStorage.clear(); window.location.reload() }
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Fehler") }
   return res.json()
+}
+
+function useAvailableYears() {
+  const [years, setYears] = useState([CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR + 1])
+  useEffect(() => {
+    api("/api/years").then(d => setYears(d.years)).catch(() => {})
+  }, [])
+  return years
+}
+
+function YearSelect({ value, onChange, years, style }) {
+  const opts = years?.length ? years : [value]
+  return (
+    <select value={value} onChange={e => onChange(+e.target.value)}
+      style={style || { padding: "8px 12px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 14 }}>
+      {opts.map(y => <option key={y} value={y}>{y}</option>)}
+    </select>
+  )
 }
 
 // ── Colors & ZEG ──────────────────────────────────────────────────────────
@@ -251,7 +269,8 @@ function LoginPage({ onLogin }) {
 // ── Dashboard Page ─────────────────────────────────────────────────────────
 function DashboardPage() {
   const now = new Date()
-  const [year, setYear] = useState(2026)
+  const years = useAvailableYears()
+  const [year, setYear] = useState(DEFAULT_YEAR)
   const [month, setMonth] = useState(now.getMonth() === 0 ? 12 : now.getMonth()) // previous month
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -283,10 +302,7 @@ function DashboardPage() {
             style={{ padding: "8px 12px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 14 }}>
             {months.map((m,i) => <option key={i+1} value={i+1}>{m}</option>)}
           </select>
-          <select value={year} onChange={e => setYear(+e.target.value)}
-            style={{ padding: "8px 12px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 14 }}>
-            <option value={2026}>2026</option>
-          </select>
+          <YearSelect value={year} onChange={setYear} years={years} />
         </div>
       </div>
 
@@ -352,8 +368,9 @@ function DashboardPage() {
 
 // ── Upload / Input Page ────────────────────────────────────────────────────
 function UploadPage() {
-  const [year, setYear] = useState(2026)
-  const [month, setMonth] = useState(5)
+  const years = useAvailableYears()
+  const [year, setYear] = useState(DEFAULT_YEAR)
+  const [month, setMonth] = useState(DEFAULT_MONTH)
   const [step, setStep] = useState(1)
   const [csvFile, setCsvFile] = useState(null)
   const [csvPreview, setCsvPreview] = useState(null)
@@ -428,6 +445,8 @@ function UploadPage() {
 
       {/* Month/Year selector */}
       <div style={{ background: "white", borderRadius: 8, padding: "20px 24px", marginBottom: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", gap: 16, alignItems: "center" }}>
+        <label style={{ fontWeight: 600, fontSize: 13 }}>Jahr:</label>
+        <YearSelect value={year} onChange={setYear} years={years} style={{ padding: "8px 12px", border: "1.5px solid #DDD", borderRadius: 8 }} />
         <label style={{ fontWeight: 600, fontSize: 13 }}>Monat:</label>
         <select value={month} onChange={e => setMonth(+e.target.value)} style={{ padding: "8px 12px", border: "1.5px solid #DDD", borderRadius: 8 }}>
           {months.map((m,i) => <option key={i+1} value={i+1}>{m} {year}</option>)}
@@ -526,6 +545,8 @@ function UploadPage() {
 
 // ── YTD Overview Page ──────────────────────────────────────────────────────
 function OverviewPage() {
+  const years = useAvailableYears()
+  const [year, setYear] = useState(DEFAULT_YEAR)
   const [data, setData] = useState(null)
   const [filterTeam, setFilterTeam] = useState("Alle")
   const [filterRole, setFilterRole] = useState("Alle")
@@ -533,7 +554,7 @@ function OverviewPage() {
   const [sortDir, setSortDir] = useState("asc")
   const months = ["Jan","Feb","Mrz","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"]
 
-  useEffect(() => { api("/api/ytd/2026").then(setData).catch(console.error) }, [])
+  useEffect(() => { api(`/api/ytd/${year}`).then(setData).catch(console.error) }, [year])
 
   if (!data) return <div style={{ textAlign: "center", padding: 60, color: "#888" }}>Lade…</div>
 
@@ -571,8 +592,13 @@ function OverviewPage() {
 
   return (
     <div>
-      <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.03em" }}>Jahresübersicht 2026</h1>
-      <div style={{ color: "#888", marginBottom: 18, fontSize: 13 }}>ZEG-B pro Monat und Mitarbeiter</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.03em" }}>Jahresübersicht {year}</h1>
+          <div style={{ color: "#888", fontSize: 13 }}>ZEG-B pro Monat und Mitarbeiter</div>
+        </div>
+        <YearSelect value={year} onChange={setYear} years={years} />
+      </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
         <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
@@ -654,9 +680,11 @@ function OverviewPage() {
 // ── Exports Page ───────────────────────────────────────────────────────────
 function ExportsPage() {
   const auth = useAuth()
+  const years = useAvailableYears()
+  const [year, setYear] = useState(DEFAULT_YEAR)
   const [loading, setLoading] = useState({})
   const [maList, setMaList] = useState([])
-  const [bilat_month, setBilatMonth] = useState(5)
+  const [bilat_month, setBilatMonth] = useState(DEFAULT_MONTH)
   const token = localStorage.getItem("token")
   const months = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"]
 
@@ -677,8 +705,13 @@ function ExportsPage() {
 
   return (
     <div>
-      <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.03em" }}>Exporte</h1>
-      <div style={{ color: "#888", marginBottom: 28, fontSize: 13 }}>Nur für CEO / COO</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.03em" }}>Exporte</h1>
+          <div style={{ color: "#888", fontSize: 13 }}>Nur für CEO / COO</div>
+        </div>
+        <YearSelect value={year} onChange={setYear} years={years} />
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(380px,1fr))", gap: 20 }}>
 
@@ -690,7 +723,7 @@ function ExportsPage() {
             <p style={{ color: "#888", fontSize: 13, marginBottom: 20, lineHeight: 1.5 }}>
               Komplette Jahresübersicht mit allen Monaten, Arbeitstag-Muster, ZEG-A/B/C und MA-Details.
             </p>
-            <button onClick={() => download("/api/export/excel/2026","Kineo_Umsatzanalyse_2026.xlsx","excel")}
+            <button onClick={() => download(`/api/export/excel/${year}`,`Kineo_Umsatzanalyse_${year}.xlsx`,"excel")}
               disabled={loading.excel} style={{ background:"#1C5B7A",color:"white",border:"none",padding:"12px 24px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:14,width:"100%" }}>
               {loading.excel ? "Wird erstellt…" : "Excel herunterladen"}
             </button>
@@ -706,9 +739,9 @@ function ExportsPage() {
           </p>
           <select value={bilat_month} onChange={e => setBilatMonth(+e.target.value)}
             style={{ width:"100%",padding:"8px 12px",border:"1.5px solid #DDD",borderRadius:8,fontSize:13,marginBottom:12 }}>
-            {months.map((m,i) => <option key={i+1} value={i+1}>Stand: {m} 2026</option>)}
+            {months.map((m,i) => <option key={i+1} value={i+1}>Stand: {m} {year}</option>)}
           </select>
-          <button onClick={() => download(`/api/export/bilats/2026/${bilat_month}`,`Kineo_Bilats_${months[bilat_month-1]}_2026.zip`,"bilat_all")}
+          <button onClick={() => download(`/api/export/bilats/${year}/${encodeURIComponent(periodForMonth(bilat_month, year))}/${bilat_month}`,`Kineo_Bilats_${months[bilat_month-1]}_${year}.zip`,"bilat_all")}
             disabled={loading.bilat_all} style={{ background:"#1C5B7A",color:"white",border:"none",padding:"12px 24px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:14,width:"100%" }}>
             {loading.bilat_all ? "Wird erstellt…" : "ZIP herunterladen"}
           </button>
@@ -723,7 +756,7 @@ function ExportsPage() {
           </p>
           <select value={bilat_month} onChange={e => setBilatMonth(+e.target.value)}
             style={{ width:"100%",padding:"8px 12px",border:"1.5px solid #DDD",borderRadius:8,fontSize:13,marginBottom:8 }}>
-            {months.map((m,i) => <option key={i+1} value={i+1}>Stand: {m} 2026</option>)}
+            {months.map((m,i) => <option key={i+1} value={i+1}>Stand: {m} {year}</option>)}
           </select>
           <div style={{ maxHeight: 280, overflowY:"auto", border:"1.5px solid #EEE", borderRadius:8, marginBottom:12 }}>
             {maList.map(ma => (
@@ -734,8 +767,8 @@ function ExportsPage() {
                   <div style={{ fontSize:11, color:"#888" }}>{ma.team} · {(ma.bg_pct*100).toFixed(0)}%</div>
                 </div>
                 <button
-                  onClick={() => download(`/api/export/bilat-single/2026/${bilat_month}/${ma.name}`,
-                    `Bilat_${ma.name.replace(".","_")}_${months[bilat_month-1]}_2026.docx`,
+                  onClick={() => download(`/api/export/bilat-single/${year}/${bilat_month}/${ma.name}`,
+                    `Bilat_${ma.name.replace(".","_")}_${months[bilat_month-1]}_${year}.docx`,
                     `bilat_${ma.name}`)}
                   disabled={loading[`bilat_${ma.name}`]}
                   style={{ background:"#E4EEF3",color:"#1C5B7A",border:"none",padding:"6px 14px",
@@ -758,6 +791,8 @@ const ROLLEN = ["therapeut","teamlead","sl","bd","management"]
 const DAYS_DE = ["Mo","Di","Mi","Do","Fr"]
 
 function AdminPage() {
+  const years = useAvailableYears()
+  const [feiertagYear, setFeiertagYear] = useState(DEFAULT_YEAR)
   const [tab, setTab] = useState("ma")
   const [mas, setMas] = useState([])
   const [feiertage, setFeiertage] = useState([])
@@ -770,9 +805,10 @@ function AdminPage() {
   const [newFeiertag, setNewFeiertag] = useState({date_str:"",name:"",faktor:1.0})
 
   const loadMAs = () => api("/api/admin/ma").then(setMas).catch(console.error)
-  const loadFeiertage = () => api("/api/admin/feiertage/2026").then(setFeiertage).catch(console.error)
+  const loadFeiertage = () => api(`/api/admin/feiertage/${feiertagYear}`).then(setFeiertage).catch(console.error)
 
-  useEffect(() => { loadMAs(); loadFeiertage() }, [])
+  useEffect(() => { loadMAs() }, [])
+  useEffect(() => { if (tab === "feiertage") loadFeiertage() }, [feiertagYear, tab])
 
   const loadSchedule = async (name) => {
     const s = await api(`/api/admin/schedule/${name}`)
@@ -801,7 +837,7 @@ function AdminPage() {
   }
 
   const saveFeiertage = async () => {
-    await api("/api/admin/feiertage/2026", {method:"POST", body:JSON.stringify(feiertage)})
+    await api(`/api/admin/feiertage/${feiertagYear}`, {method:"POST", body:JSON.stringify(feiertage)})
     setMsg({type:"ok",text:"Feiertage gespeichert"}); loadFeiertage()
   }
 
@@ -1002,9 +1038,12 @@ function AdminPage() {
       {/* ── TAB: Feiertage ── */}
       {tab==="feiertage" && (
         <div style={{background:"white",borderRadius:12,padding:24,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-            <h3 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:0}}>Feiertage Kanton Zürich 2026</h3>
-            <button style={btn()} onClick={saveFeiertage}>Alle speichern</button>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:12}}>
+            <h3 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:0}}>Feiertage Kanton Zürich</h3>
+            <div style={{display:"flex",gap:12,alignItems:"center"}}>
+              <YearSelect value={feiertagYear} onChange={setFeiertagYear} years={years} />
+              <button style={btn()} onClick={saveFeiertage}>Alle speichern</button>
+            </div>
           </div>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,marginBottom:20}}>
             <thead><tr style={{background:"#1C5B7A",color:"white"}}>
@@ -1112,6 +1151,7 @@ const KAT_LABELS = {
 }
 
 function BilatDataPage() {
+  const years = useAvailableYears()
   const now = new Date()
   const defaultPeriod = `${now.getMonth() < 6 ? "HJ1" : "HJ2"} ${now.getFullYear()}`
   const [overview, setOverview] = useState([])
@@ -1181,7 +1221,7 @@ function BilatDataPage() {
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24}}>
         <button onClick={()=>{setSelected(null);setMsg(null)}} style={{background:"#EEE",border:"none",padding:"8px 16px",borderRadius:8,cursor:"pointer",fontWeight:600}}>← Zurück</button>
         <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:0,fontSize:22,fontWeight:800}}>Bilateral — {selected.display_name}</h1>
-        <span style={{color:"#888",fontSize:13}}>HJ{half} {year}</span>
+        <span style={{color:"#888",fontSize:13}}>{period}</span>
       </div>
       {msg && <div style={{background:msg.type==="ok"?"#E8F8E8":"#FFE8E8",color:msg.type==="ok"?"#1a7a1a":"#c0392b",padding:"10px 14px",borderRadius:8,marginBottom:16,fontSize:13}}>{msg.text}</div>}
 
@@ -1247,12 +1287,41 @@ function BilatDataPage() {
     </div>
   )
 
+  const selectStyle = { padding: "6px 10px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12, background: "white", color: "#333" }
+
   // Overview
   const teams = [...new Set(overview.map(m=>m.team))]
   return (
     <div>
       <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 8px",fontSize:24,fontWeight:800}}>Bilaterals</h1>
-      <div style={{color:"#888",marginBottom:28,fontSize:13}}>HJ{half} {year} — Bewertungen erfassen und speichern</div>
+      <div style={{color:"#888",marginBottom:18,fontSize:13}}>Bewertungen erfassen und speichern</div>
+
+      <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap", alignItems: "center" }}>
+        <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
+          Jahr:
+          <YearSelect value={year} onChange={setYear} years={years} style={selectStyle} />
+        </label>
+        <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
+          Periode:
+          <select value={period} onChange={e => setPeriod(e.target.value)} style={selectStyle}>
+            {periods.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </label>
+        <button onClick={() => setShowNewPeriod(!showNewPeriod)} style={{ ...selectStyle, cursor: "pointer", fontWeight: 600 }}>
+          + Neue Periode
+        </button>
+        {showNewPeriod && (
+          <>
+            <input value={newPeriod} onChange={e => setNewPeriod(e.target.value)} placeholder="z.B. HJ1 2027"
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12 }} />
+            <button onClick={addPeriod} style={{ padding: "6px 14px", background: "#1C5B7A", color: "white", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+              Hinzufügen
+            </button>
+          </>
+        )}
+      </div>
+
+      <div style={{color:"#888",marginBottom:28,fontSize:13}}>{period} — Übersicht nach Standort</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:20}}>
         {teams.map(team=>{
           const teamMAs=overview.filter(m=>m.team===team)
@@ -1292,6 +1361,8 @@ function BilatDataPage() {
 
 // ── Umsatzlohn Rechner ─────────────────────────────────────────────────────
 function LohnrechnerPage() {
+  const years = useAvailableYears()
+  const [dataYear, setDataYear] = useState(DEFAULT_YEAR)
   const [params, setParams] = useState({
     umsatz: 0, bg_pct: 100, ziel_chf: 1040, lohnquote: 40,
     fixlohn: 5000, zeg_schwelle: 85, bonus_ab: 100
@@ -1302,8 +1373,8 @@ function LohnrechnerPage() {
 
   useEffect(() => {
     api("/api/ma").then(setMaList).catch(console.error)
-    api("/api/ytd/2026").then(setYtdData).catch(console.error)
-  }, [])
+    api(`/api/ytd/${dataYear}`).then(setYtdData).catch(console.error)
+  }, [dataYear])
 
   const p = params
   const brutto_ziel = p.fixlohn / (p.lohnquote/100)
@@ -1350,8 +1421,16 @@ function LohnrechnerPage() {
 
   return (
     <div>
-      <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 8px",fontSize:24,fontWeight:800}}>🧮 Umsatzlohn-Rechner</h1>
-      <div style={{color:"#888",marginBottom:28,fontSize:13}}>Simulation Umsatzlohnmodell — {params.lohnquote}% Bruttolohnquote</div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:28,flexWrap:"wrap",gap:12}}>
+        <div>
+          <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 8px",fontSize:24,fontWeight:800}}>🧮 Umsatzlohn-Rechner</h1>
+          <div style={{color:"#888",fontSize:13}}>Simulation Umsatzlohnmodell — {params.lohnquote}% Bruttolohnquote</div>
+        </div>
+        <label style={{fontSize:12,color:"#888",display:"flex",alignItems:"center",gap:6}}>
+          Ist-Daten:
+          <YearSelect value={dataYear} onChange={setDataYear} years={years} />
+        </label>
+      </div>
 
       <div style={{display:"grid",gridTemplateColumns:"320px 1fr",gap:24}}>
         {/* Parameter */}
@@ -1420,7 +1499,7 @@ function LohnrechnerPage() {
           {/* MA-spezifische Simulation */}
           {maCalc && (
             <div style={{background:"white",borderRadius:12,padding:24,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-              <h4 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 16px",color:"#1C5B7A"}}>📊 {selectedMA} — Simulation mit Ist-Daten 2026</h4>
+              <h4 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 16px",color:"#1C5B7A"}}>📊 {selectedMA} — Simulation mit Ist-Daten {dataYear}</h4>
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
                 {[
                   ["Ø Monats-Umsatz",chf(maCalc.avgMonthlyUmsatz)],

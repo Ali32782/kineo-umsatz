@@ -54,14 +54,14 @@ def generate_bilats_zip(year: int, month: int, db: Session, current_user: User, 
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
         for ma in mas:
             bilat = bilat_all.get(ma.name)
-            doc_path = _generate_bilat_doc(ma, year, month, umsatz_all, inputs_all, bilat)
+            doc_path = _generate_bilat_doc(ma, year, month, umsatz_all, inputs_all, bilat, db=db)
             zf.write(doc_path, os.path.basename(doc_path))
             os.remove(doc_path)
 
     return zip_path
 
 def _generate_bilat_doc(ma: MAStammdaten, year: int, month: int,
-                         umsatz_all: dict, inputs_all: dict, bilat: "BilatData" = None) -> str:
+                         umsatz_all: dict, inputs_all: dict, bilat: "BilatData" = None, db=None) -> str:
     doc = Document()
 
     for section in doc.sections:
@@ -109,7 +109,7 @@ def _generate_bilat_doc(ma: MAStammdaten, year: int, month: int,
     for m in range(1, month + 1):
         umsatz = umsatz_all.get((ma.name, m), 0)
         inp = inputs_all.get((ma.name, m))
-        soll = compute_soll_tage(ma.name, year, m)
+        soll = compute_soll_tage(ma.name, year, m, db=db)
         if soll == 0 and umsatz == 0:
             continue
         zeg = compute_zeg(
@@ -120,6 +120,7 @@ def _generate_bilat_doc(ma: MAStammdaten, year: int, month: int,
             marketing_h=inp.marketing_h if inp else 0,
             laufanalyse_h=inp.laufanalyse_h if inp else 0,
             krank_t=inp.krank_t if inp else 0,
+            db=db,
         )
         row = tbl.add_row().cells
         row[0].text = MONTH_NAMES_DE[m]
@@ -213,4 +214,4 @@ def generate_single_bilat(year: int, month: int, ma_name: str, db, period_label:
     else:
         half = _half_for_month(month)
         bilat = db.query(BilatData).filter_by(ma_name=ma_name, year=year, half=half).first()
-    return _generate_bilat_doc(ma, year, month, umsatz_all, inputs_all, bilat)
+    return _generate_bilat_doc(ma, year, month, umsatz_all, inputs_all, bilat, db=db)

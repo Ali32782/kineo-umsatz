@@ -10,14 +10,19 @@ services:
     volumes:
       - ./data:/app/data
       - ./exports:/app/exports
+    env_file:
+      - .env
     environment:
-      - ENV=production
+      - DATA_DIR=/app/data
+      - EXPORTS_DIR=/app/exports
     restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
     ports:
       - "3000:80"
     depends_on:

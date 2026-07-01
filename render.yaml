@@ -1,5 +1,4 @@
 services:
-  # Backend (FastAPI)
   - type: web
     name: kineo-backend
     runtime: python
@@ -11,18 +10,35 @@ services:
         value: 3.11.0
       - key: ENV
         value: production
+      - key: DATA_DIR
+        value: /app/data
+      - key: EXPORTS_DIR
+        value: /app/exports
+      - key: SECRET_KEY
+        generateValue: true
+      - key: RESEND_API_KEY
+        sync: false
+      - key: FROM_EMAIL
+        value: kineo@kineo.swiss
+      - key: CEO_EMAILS
+        value: ali.peters@kineo.swiss,sereina.urech@kineo.swiss
     disk:
       name: kineo-data
       mountPath: /app/data
       sizeGB: 1
 
-  # Frontend (React → static site)
   - type: web
     name: kineo-frontend
     runtime: static
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: kineo-backend
+          envVarKey: RENDER_EXTERNAL_URL
     routes:
       - type: rewrite
         source: /*

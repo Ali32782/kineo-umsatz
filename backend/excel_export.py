@@ -71,14 +71,14 @@ def generate_excel(year:int, db:Session)->str:
             sc=3+mi*2
             umsatz=umsatz_all.get((ma.name,mn),0)
             inp=inputs_all.get((ma.name,mn))
-            soll=compute_soll_tage(ma.name,year,mn)
+            soll=compute_soll_tage(ma.name,year,mn,db=db)
             if soll==0 and umsatz==0:
                 for d in range(2): fc(ws.cell(row=row,column=sc+d),bg=bg,fg='CCCCCC')
                 continue
             zeg=compute_zeg(ma.name,year,mn,umsatz,
                 ferien_t=inp.ferien_t if inp else 0,kurs_h=inp.kurs_h if inp else 0,
                 workshop_h=inp.workshop_h if inp else 0,marketing_h=inp.marketing_h if inp else 0,
-                laufanalyse_h=inp.laufanalyse_h if inp else 0,krank_t=inp.krank_t if inp else 0)
+                laufanalyse_h=inp.laufanalyse_h if inp else 0,krank_t=inp.krank_t if inp else 0,db=db)
             fc(ws.cell(row=row,column=sc,value=umsatz),bg=bg,fmt="#'##0",align='right')
             zb=zeg['zeg_b']
             fc(ws.cell(row=row,column=sc+1,value=zb),bold=bool(zb),bg=zeg_bg(zb),fmt='0.0%' if zb else None)
@@ -111,11 +111,11 @@ def generate_excel(year:int, db:Session)->str:
             bg=WHITE if i%2==0 else GRAY
             umsatz=umsatz_all.get((ma.name,mn),0)
             inp=inputs_all.get((ma.name,mn))
-            soll=compute_soll_tage(ma.name,year,mn)
+            soll=compute_soll_tage(ma.name,year,mn,db=db)
             zeg=compute_zeg(ma.name,year,mn,umsatz,
                 ferien_t=inp.ferien_t if inp else 0,kurs_h=inp.kurs_h if inp else 0,
                 workshop_h=inp.workshop_h if inp else 0,marketing_h=inp.marketing_h if inp else 0,
-                laufanalyse_h=inp.laufanalyse_h if inp else 0,krank_t=inp.krank_t if inp else 0)
+                laufanalyse_h=inp.laufanalyse_h if inp else 0,krank_t=inp.krank_t if inp else 0,db=db)
             vals=[ma.display_name,ma.bg_pct,soll,
                 inp.ferien_t if inp else None,inp.kurs_h if inp else None,
                 inp.workshop_h if inp else None,inp.marketing_h if inp else None,

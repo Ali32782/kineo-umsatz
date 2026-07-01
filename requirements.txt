@@ -6,4 +6,4 @@ openpyxl==3.1.5
 python-docx==1.1.2
 python-jose[cryptography]==3.3.0
 aiofiles==24.1.0
-psycopg2-binary==2.9.9
+resend==2.5.1

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Optional, List
 from jose import JWTError, jwt
 from pydantic import BaseModel
@@ -14,9 +14,10 @@ from calc import (
     compute_zeg, compute_soll_tage, parse_csv_umsatz,
     zeg_color, MONTH_NAMES_DE, MA_PATTERNS
 )
+from email_service import email_zeg_alarm, email_csv_reminder
 
 # ── Config ────────────────────────────────────────────────────────────────
-SECRET_KEY = "kineo-secret-2026-change-in-prod"
+SECRET_KEY = os.environ.get("SECRET_KEY", "kineo-secret-2026-change-in-prod")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 hours
 
@@ -50,10 +51,6 @@ def create_token(data: dict):
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-def get_current_user(token: str = Depends(lambda: None), db: Session = Depends(get_db)):
-    from fastapi.security import OAuth2PasswordBearer
-    raise HTTPException(status_code=401, detail="Not authenticated")
 
 from fastapi.security import OAuth2PasswordBearer
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/login")
@@ -236,6 +233,7 @@ def get_dashboard(
             marketing_h=inp.marketing_h if inp else 0,
             laufanalyse_h=inp.laufanalyse_h if inp else 0,
             krank_t=inp.krank_t if inp else 0,
+            db=db,
         )
         results.append({
             "name": name,
@@ -347,7 +345,7 @@ def get_ytd(
         for m in range(1, 13):
             umsatz = umsatz_map.get((name, m), 0)
             inp = input_map.get((name, m))
-            soll = compute_soll_tage(name, year, m)
+            soll = compute_soll_tage(name, year, m, db=db)
             if soll == 0:
                 monthly.append(None)
                 continue
@@ -362,6 +360,7 @@ def get_ytd(
                 marketing_h=inp.marketing_h if inp else 0,
                 laufanalyse_h=inp.laufanalyse_h if inp else 0,
                 krank_t=inp.krank_t if inp else 0,
+                db=db,
             )
             monthly.append({
                 "umsatz": umsatz,
@@ -455,59 +454,84 @@ def change_password(data: PasswordChange, db: Session = Depends(get_db), current
     db.commit()
     return {"message": "Passwort geaendert"}
 
+# ── Config / Years ────────────────────────────────────────────────────────
+@app.get("/api/years")
+def get_years(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from sqlalchemy import distinct
+    current = date.today().year
+    years = {current, current - 1, current + 1}
+    for (y,) in db.query(distinct(UmsatzData.year)).all():
+        if y:
+            years.add(y)
+    for (y,) in db.query(distinct(MonthlyInput.year)).all():
+        if y:
+            years.add(y)
+    for (y,) in db.query(distinct(BilatData.year)).all():
+        if y:
+            years.add(y)
+    return {"current": current, "years": sorted(years, reverse=True)}
+
 # ── ZEG-B Trend Alarm ────────────────────────────────────────────────────
 @app.post("/api/admin/check-trends")
-def check_zeg_trends(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def check_zeg_trends(
+    year: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     if current_user.role != "ceo":
         raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    year = year or date.today().year
     mas = db.query(MAStammdaten).filter_by(is_active=True).all()
-    umsatz_all = {(r.ma_name,r.month):r.umsatz for r in db.query(UmsatzData).filter_by(year=2026).all()}
-    input_all = {(r.ma_name,r.month):r for r in db.query(MonthlyInput).filter_by(year=2026).all()}
-    alerts = []
+    umsatz_all = {(r.ma_name, r.month): r.umsatz for r in db.query(UmsatzData).filter_by(year=year).all()}
+    input_all = {(r.ma_name, r.month): r for r in db.query(MonthlyInput).filter_by(year=year).all()}
+
+    pending = []
     for ma in mas:
         below = []
-        for m in range(1,13):
-            u = umsatz_all.get((ma.name,m),0)
-            if u == 0: continue
-            inp = input_all.get((ma.name,m))
-            zeg = compute_zeg(ma.name,2026,m,u,
-                ferien_t=inp.ferien_t if inp else 0, kurs_h=inp.kurs_h if inp else 0,
-                workshop_h=inp.workshop_h if inp else 0, marketing_h=inp.marketing_h if inp else 0,
-                laufanalyse_h=inp.laufanalyse_h if inp else 0, krank_t=inp.krank_t if inp else 0)
+        zeg_values = []
+        for m in range(1, 13):
+            u = umsatz_all.get((ma.name, m), 0)
+            if u == 0:
+                continue
+            inp = input_all.get((ma.name, m))
+            zeg = compute_zeg(
+                ma.name, year, m, u,
+                ferien_t=inp.ferien_t if inp else 0,
+                kurs_h=inp.kurs_h if inp else 0,
+                workshop_h=inp.workshop_h if inp else 0,
+                marketing_h=inp.marketing_h if inp else 0,
+                laufanalyse_h=inp.laufanalyse_h if inp else 0,
+                krank_t=inp.krank_t if inp else 0,
+                db=db,
+            )
             if zeg["zeg_b"] and zeg["zeg_b"] < 0.85:
                 below.append(m)
+                zeg_values.append(zeg["zeg_b"])
             else:
-                below = []  # reset streak
+                below = []
+                zeg_values = []
             if len(below) >= 2:
-                msg = f"ZEG-B Alarm: {ma.display_name} — {len(below)} Monate unter 85% (seit {MONTH_NAMES_DE[below[0]]})"
-                exists = db.query(Notification).filter_by(type="zeg_alarm", detail=ma.name, is_read=False).first()
-                if not exists:
-                    db.add(Notification(type="zeg_alarm", message=msg, detail=ma.name))
-                    alerts.append(msg)
+                pending.append((ma, below, zeg_values))
+                break
+
+    alerts = []
+    alert_objs = []
+    for ma, below, zeg_values in pending:
+        msg = f"ZEG-B Alarm: {ma.display_name} — {len(below)} Monate unter 85% (seit {MONTH_NAMES_DE[below[0]]})"
+        exists = db.query(Notification).filter_by(type="zeg_alarm", detail=ma.name, is_read=False).first()
+        if not exists:
+            db.add(Notification(type="zeg_alarm", message=msg, detail=ma.name))
+            alerts.append(msg)
+        alert_objs.append({
+            "name": ma.display_name,
+            "months": len(below),
+            "avg_zeg": sum(zeg_values) / len(zeg_values) * 100,
+        })
+
     db.commit()
-    if alerts:
-        # Build structured alert list for email
-        alert_objs = []
-        for ma in mas:
-            below = []
-            for m in range(1,13):
-                u = umsatz_all.get((ma.name,m),0)
-                if u == 0: continue
-                inp = input_all.get((ma.name,m))
-                zeg = compute_zeg(ma.name,2026,m,u,
-                    ferien_t=inp.ferien_t if inp else 0, kurs_h=inp.kurs_h if inp else 0,
-                    workshop_h=inp.workshop_h if inp else 0, marketing_h=inp.marketing_h if inp else 0,
-                    laufanalyse_h=inp.laufanalyse_h if inp else 0, krank_t=inp.krank_t if inp else 0)
-                if zeg["zeg_b"] and zeg["zeg_b"] < 0.85:
-                    below.append(zeg["zeg_b"])
-                else:
-                    below = []
-                if len(below) >= 2:
-                    alert_objs.append({"name": ma.display_name, "months": len(below),
-                                       "avg_zeg": sum(below)/len(below)*100})
-                    break
+    if alert_objs:
         email_zeg_alarm(alert_objs)
-    return {"alerts": alerts, "count": len(alerts)}
+    return {"alerts": alerts, "count": len(alerts), "year": year}
 
 # ── Monthly Reminder Check ────────────────────────────────────────────────
 @app.post("/api/admin/check-reminders")
@@ -574,16 +598,17 @@ def get_bilat_periods(db: Session = Depends(get_db), current_user: User = Depend
 def get_bilat(ma_name: str, year: int, period_label: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period_label).first()
     if not b: return {}
-    return {k: getattr(b,k) for k in BilatInput.__fields__}
+    return {k: getattr(b, k) for k in BilatInput.model_fields}
 
 @app.post("/api/bilat/{ma_name}/{year}/{period_label}")
 def save_bilat(ma_name: str, year: int, period_label: str, data: BilatInput,
                db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period_label).first()
     if not b:
-        b = BilatData(ma_name=ma_name, year=year, period_label=period_label)
+        half = 1 if period_label.upper().startswith("HJ1") else 2
+        b = BilatData(ma_name=ma_name, year=year, period_label=period_label, half=half)
         db.add(b)
-    for k,v in data.dict().items():
+    for k, v in data.model_dump().items():
         setattr(b, k, v)
     b.updated_at = datetime.utcnow()
     b.updated_by = current_user.username
@@ -722,25 +747,8 @@ def get_feiertage(year: int, db: Session = Depends(get_db), current_user: User =
     entries = db.query(Feiertag).filter_by(year=year).order_by(Feiertag.date_str).all()
     if not entries:
         # Return defaults from calc.py
-        from calc import FEIERTAGE_FULL, FEIERTAGE_HALF
-        defaults=[]
-        names={
-            "2026-01-01":"Neujahr","2026-01-02":"Berchtoldstag",
-            "2026-04-03":"Karfreitag","2026-04-06":"Ostermontag",
-            "2026-04-20":"Sächseläuten","2026-05-01":"Tag der Arbeit",
-            "2026-05-14":"Auffahrt","2026-05-25":"Pfingstmontag",
-            "2026-08-01":"Nationalfeiertag","2026-09-14":"Knabenschiessen",
-            "2026-12-25":"Weihnachten","2026-12-26":"Stephanstag",
-        }
-        for d in FEIERTAGE_FULL:
-            if d.year==year:
-                ds=d.strftime("%Y-%m-%d")
-                defaults.append({"date_str":ds,"name":names.get(ds,ds),"faktor":1.0})
-        for d in FEIERTAGE_HALF:
-            if d.year==year:
-                ds=d.strftime("%Y-%m-%d")
-                defaults.append({"date_str":ds,"name":names.get(ds,ds),"faktor":0.5})
-        return sorted(defaults,key=lambda x:x["date_str"])
+        from calc import default_feiertage_entries
+        return default_feiertage_entries(year)
     return [{"id":e.id,"date_str":e.date_str,"name":e.name,"faktor":e.faktor} for e in entries]
 
 @app.post("/api/admin/feiertage/{year}")
@@ -749,7 +757,7 @@ def save_feiertage(year: int, data: List[FeiertageEntry], db: Session = Depends(
         raise HTTPException(status_code=403, detail="Keine Berechtigung")
     db.query(Feiertag).filter_by(year=year).delete()
     for f in data:
-        db.add(Feiertag(year=year, **f.dict()))
+        db.add(Feiertag(year=year, **f.model_dump()))
     db.commit()
     return {"message": f"{len(data)} Feiertage für {year} gespeichert"}
 

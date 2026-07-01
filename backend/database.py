@@ -110,7 +110,8 @@ class BilatData(Base):
     id = Column(Integer, primary_key=True)
     ma_name = Column(String, nullable=False)
     year = Column(Integer, nullable=False)
-    half = Column(Integer, nullable=False)  # 1 or 2
+    period_label = Column(String, nullable=True)  # e.g. "HJ1 2026"
+    half = Column(Integer, nullable=True)  # legacy fallback: 1 or 2
     # Kategorie A-D ratings (self + FK)
     kat_a_self = Column(Integer, nullable=True)
     kat_a_fk = Column(Integer, nullable=True)
@@ -140,8 +141,31 @@ def get_db():
     finally:
         db.close()
 
+def migrate_schema():
+    """Lightweight SQLite migrations for existing databases."""
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    if not inspector.has_table("bilat_data"):
+        return
+    cols = {c["name"] for c in inspector.get_columns("bilat_data")}
+    with engine.begin() as conn:
+        if "period_label" not in cols:
+            conn.execute(text("ALTER TABLE bilat_data ADD COLUMN period_label VARCHAR"))
+        # Backfill period_label from legacy half column
+        if "half" in cols:
+            conn.execute(text("""
+                UPDATE bilat_data
+                SET period_label = CASE
+                    WHEN half = 1 THEN 'HJ1 ' || year
+                    WHEN half = 2 THEN 'HJ2 ' || year
+                    ELSE NULL
+                END
+                WHERE period_label IS NULL AND half IS NOT NULL
+            """))
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+    migrate_schema()
     seed_initial_data()
 
 def seed_initial_data():

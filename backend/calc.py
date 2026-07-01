@@ -4,6 +4,8 @@ import calendar
 ZIEL = 1040.0
 STD = 8.4
 
+WEEKDAY_KEYS = ["mo", "di", "mi", "do", "fr"]
+
 FEIERTAGE_FULL = [
     date(2026,1,1), date(2026,1,2), date(2026,4,3), date(2026,4,6),
     date(2026,5,1), date(2026,5,14), date(2026,5,25), date(2026,8,1),
@@ -50,23 +52,70 @@ MA_OVERRIDES = {
     "Sonia.M": {1: {"mo":0.20,"di":0.20,"mi":0.20,"do":0.20,"fr":0.00}},
 }
 
-def get_pattern(name: str, m_num: int) -> dict:
-    base = MA_PATTERNS.get(name, {})
+def pattern_from_schedule(entries) -> dict:
+    """Convert MAScheduleEntry rows to a MA_PATTERNS-compatible dict."""
+    pat = {k: 0.0 for k in WEEKDAY_KEYS}
+    pat["mgmt"] = 0
+    pat["leit"] = 0
+    for e in entries:
+        key = WEEKDAY_KEYS[e.weekday]
+        pat[key] = max(pat[key], e.vm_pct or 0, e.nm_pct or 0)
+    return pat
+
+def get_feiertage_sets(year: int, db=None) -> tuple[set, set]:
+    """Return (full_day_holidays, half_day_holidays) for a year."""
+    if db is not None:
+        from database import Feiertag
+        entries = db.query(Feiertag).filter_by(year=year).all()
+        if entries:
+            full, half = set(), set()
+            for e in entries:
+                d = date.fromisoformat(e.date_str)
+                if e.faktor >= 1.0:
+                    full.add(d)
+                else:
+                    half.add(d)
+            return full, half
+    full = {d for d in FEIERTAGE_FULL if d.year == year}
+    half = {d for d in FEIERTAGE_HALF if d.year == year}
+    return full, half
+
+def get_eintritt(name: str, year: int, db=None) -> date:
+    if db is not None:
+        from database import MAStammdaten
+        ma = db.query(MAStammdaten).filter_by(name=name).first()
+        if ma and ma.eintritt:
+            try:
+                return date.fromisoformat(ma.eintritt)
+            except ValueError:
+                pass
+    return MA_EINTRITTE.get(name, date(year, 1, 1))
+
+def get_pattern(name: str, m_num: int, db=None) -> dict:
+    base = dict(MA_PATTERNS.get(name, {}))
+    if db is not None:
+        from database import MAScheduleEntry
+        entries = db.query(MAScheduleEntry).filter_by(ma_name=name).all()
+        if entries:
+            sched = pattern_from_schedule(entries)
+            sched["mgmt"] = base.get("mgmt", 0)
+            sched["leit"] = base.get("leit", 0)
+            base = sched
     overrides = MA_OVERRIDES.get(name, {})
     if m_num in overrides:
         return {**base, **overrides[m_num]}
     return base
 
-def compute_soll_tage(name: str, year: int, m_num: int) -> float:
-    pat = get_pattern(name, m_num)
+def compute_soll_tage(name: str, year: int, m_num: int, db=None) -> float:
+    pat = get_pattern(name, m_num, db=db)
     if not pat:
         return 0.0
-    ein = MA_EINTRITTE.get(name, date(year, 1, 1))
+    ein = get_eintritt(name, year, db=db)
     last = calendar.monthrange(year, m_num)[1]
     me = date(year, m_num, last)
-    ms = date(year, m_num, 1)
     if ein > me:
         return 0.0
+    feiertage_full, feiertage_half = get_feiertage_sets(year, db=db)
     wd_map = {0: pat.get("mo",0), 1: pat.get("di",0), 2: pat.get("mi",0),
                3: pat.get("do",0), 4: pat.get("fr",0)}
     total = 0.0
@@ -79,13 +128,14 @@ def compute_soll_tage(name: str, year: int, m_num: int) -> float:
             if pct == 0:
                 continue
             d = date(year, m_num, day)
-            if d in FEIERTAGE_FULL:
+            if d in feiertage_full:
                 continue
-            elif d in FEIERTAGE_HALF:
+            elif d in feiertage_half:
                 total += pct / 0.20 * 0.5
             else:
                 total += pct / 0.20
     return round(total, 2)
+
 
 def compute_zeg(
     name: str, year: int, m_num: int,
@@ -96,10 +146,11 @@ def compute_zeg(
     marketing_h: float = 0,
     laufanalyse_h: float = 0,
     krank_t: float = 0,
+    db=None,
 ) -> dict:
-    soll = compute_soll_tage(name, year, m_num)
-    pat = get_pattern(name, m_num)
-    bg = sum([pat.get(k,0) for k in ["mo","di","mi","do","fr"]])
+    soll = compute_soll_tage(name, year, m_num, db=db)
+    pat = get_pattern(name, m_num, db=db)
+    bg = sum([pat.get(k,0) for k in WEEKDAY_KEYS])
 
     mgmt_t = pat.get("mgmt", 0) / 100 * soll
     leit_t = (pat.get("leit", 0) / STD * ((soll - ferien_t) / soll)) if soll > 0 else 0
@@ -138,7 +189,6 @@ def parse_csv_umsatz(content: str) -> dict:
         name = parts[0].strip()
         if name in ('Summe', ''):
             continue
-        # Remove thousands separators and parse
         try:
             amount_str = parts[1].strip().replace("'", "").replace(",", ".")
             amount = float(amount_str)
@@ -160,3 +210,30 @@ MONTH_NAMES_DE = {
     1:"Januar",2:"Februar",3:"März",4:"April",5:"Mai",6:"Juni",
     7:"Juli",8:"August",9:"September",10:"Oktober",11:"November",12:"Dezember"
 }
+
+HOLIDAY_NAMES = {
+    (1, 1): "Neujahr", (1, 2): "Berchtoldstag",
+    (4, 3): "Karfreitag", (4, 6): "Ostermontag", (4, 20): "Sächseläuten",
+    (5, 1): "Tag der Arbeit", (5, 14): "Auffahrt", (5, 25): "Pfingstmontag",
+    (8, 1): "Nationalfeiertag", (9, 14): "Knabenschiessen",
+    (12, 25): "Weihnachten", (12, 26): "Stephanstag",
+}
+
+def default_feiertage_entries(year: int) -> list[dict]:
+    """Default Zürich holidays for a year (from seed lists; movable dates only if listed)."""
+    entries = []
+    for d in FEIERTAGE_FULL:
+        if d.year == year:
+            entries.append({
+                "date_str": d.strftime("%Y-%m-%d"),
+                "name": HOLIDAY_NAMES.get((d.month, d.day), d.strftime("%Y-%m-%d")),
+                "faktor": 1.0,
+            })
+    for d in FEIERTAGE_HALF:
+        if d.year == year:
+            entries.append({
+                "date_str": d.strftime("%Y-%m-%d"),
+                "name": HOLIDAY_NAMES.get((d.month, d.day), d.strftime("%Y-%m-%d")),
+                "faktor": 0.5,
+            })
+    return sorted(entries, key=lambda x: x["date_str"])
