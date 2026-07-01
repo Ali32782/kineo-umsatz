@@ -13,6 +13,7 @@ from database import get_db, init_db, User, UmsatzData, MonthlyInput, MAStammdat
 from calc import (
     compute_zeg, compute_soll_tage, parse_csv_umsatz,
     zeg_color, MONTH_NAMES_DE, MA_PATTERNS, get_standort_splits, get_standort_fte_weights,
+    is_employed_in_month,
 )
 from email_service import email_zeg_alarm, email_csv_reminder
 
@@ -206,7 +207,11 @@ def get_dashboard(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    mas = db.query(MAStammdaten).filter(MAStammdaten.is_active == True).all()
+    all_mas = db.query(MAStammdaten).all()
+    mas = [
+        m for m in all_mas
+        if is_employed_in_month(m.eintritt, m.austritt, year, month, m.is_active)
+    ]
     if current_user.role == "teamlead" and current_user.team:
         mas = [m for m in mas if m.team == current_user.team]
 
@@ -290,7 +295,7 @@ def get_dashboard(
         for t, v in teams.items()
     }
 
-    total_fte_all = round(sum(ma.bg_pct or 0 for ma in mas), 1)
+    total_fte_all = round(sum(r["bg_pct"] for r in ma_data_expanded), 1)
 
     return {
         "year": year,
@@ -309,7 +314,11 @@ def get_ytd(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    mas = db.query(MAStammdaten).filter(MAStammdaten.is_active == True).all()
+    all_mas = db.query(MAStammdaten).all()
+    mas = [
+        m for m in all_mas
+        if any(is_employed_in_month(m.eintritt, m.austritt, year, mo, m.is_active) for mo in range(1, 13))
+    ]
     if current_user.role == "teamlead" and current_user.team:
         mas = [m for m in mas if m.team == current_user.team]
 
@@ -330,6 +339,9 @@ def get_ytd(
         monthly = []
         zeg_b_values = []
         for m in range(1, 13):
+            if not is_employed_in_month(ma.eintritt, ma.austritt, year, m, ma.is_active):
+                monthly.append(None)
+                continue
             umsatz = umsatz_map.get((name, m), 0)
             inp = input_map.get((name, m))
             soll = compute_soll_tage(name, year, m, db=db)

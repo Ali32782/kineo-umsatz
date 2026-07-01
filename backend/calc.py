@@ -153,6 +153,50 @@ def get_eintritt(name: str, year: int, db=None) -> date:
                 pass
     return MA_EINTRITTE.get(name, date(year, 1, 1))
 
+
+def _parse_ma_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def get_austritt(name: str, db=None) -> date | None:
+    if db is not None:
+        from database import MAStammdaten
+        ma = db.query(MAStammdaten).filter_by(name=name).first()
+        if ma:
+            return _parse_ma_date(ma.austritt)
+    return None
+
+
+def is_employed_in_month(
+    eintritt: str | None,
+    austritt: str | None,
+    year: int,
+    month: int,
+    is_active: bool = True,
+) -> bool:
+    """True wenn MA im Monat beschäftigt war (Eintritt/Austritt berücksichtigt)."""
+    month_start = date(year, month, 1)
+    month_end = date(year, month, calendar.monthrange(year, month)[1])
+
+    ein = _parse_ma_date(eintritt) or date(year, 1, 1)
+    if ein > month_end:
+        return False
+
+    aus = _parse_ma_date(austritt)
+    if aus and aus < month_start:
+        return False
+
+    # Deaktiviert ohne Austrittsdatum → nirgends zählen
+    if not is_active and not aus:
+        return False
+
+    return True
+
 def get_pattern(name: str, m_num: int, db=None) -> dict:
     base = dict(MA_PATTERNS.get(name, {}))
     if db is not None:
@@ -176,6 +220,9 @@ def compute_soll_tage(name: str, year: int, m_num: int, db=None) -> float:
     last = calendar.monthrange(year, m_num)[1]
     me = date(year, m_num, last)
     if ein > me:
+        return 0.0
+    aus = get_austritt(name, db=db)
+    if aus and aus < date(year, m_num, 1):
         return 0.0
     feiertage_full, feiertage_half = get_feiertage_sets(year, db=db)
     wd_map = {0: pat.get("mo",0), 1: pat.get("di",0), 2: pat.get("mi",0),

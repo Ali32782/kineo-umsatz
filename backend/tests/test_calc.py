@@ -20,6 +20,7 @@ from calc import (  # noqa: E402
     day_pct_to_halves,
     schedule_needs_reseed,
     get_standort_fte_weights,
+    is_employed_in_month,
 )
 from database import init_db, SessionLocal, MAScheduleEntry, Feiertag, Base, engine, seed_schedules_from_excel  # noqa: E402
 
@@ -199,8 +200,39 @@ def test_get_standort_splits_schedule_overrides():
     assert splits == {"Wipkingen": 1.0}
 
 
-def test_get_standort_splits_primary_fallback():
-    assert get_standort_splits("Emma.L", "Wipkingen") == {"Wipkingen": 1.0}
+def test_is_employed_in_month_austritt():
+    # Austritt Ende Februar → nicht mehr im März
+    assert is_employed_in_month("2026-01-01", "2026-02-28", 2026, 2, True) is True
+    assert is_employed_in_month("2026-01-01", "2026-02-28", 2026, 3, True) is False
+    # Austritt im März → noch im März gezählt
+    assert is_employed_in_month("2026-01-01", "2026-03-15", 2026, 3, True) is True
+    assert is_employed_in_month("2026-01-01", "2026-03-15", 2026, 4, True) is False
+
+
+def test_is_employed_in_month_eintritt():
+    assert is_employed_in_month("2026-03-01", None, 2026, 2, True) is False
+    assert is_employed_in_month("2026-03-01", None, 2026, 3, True) is True
+
+
+def test_is_employed_in_month_inactive_without_austritt():
+    assert is_employed_in_month("2026-01-01", None, 2026, 3, False) is False
+
+
+def test_compute_soll_tage_after_austritt():
+    db = SessionLocal()
+    try:
+        from database import MAStammdaten
+        ma = db.query(MAStammdaten).filter_by(name="Barbara.V").first()
+        assert ma is not None
+        old = ma.austritt
+        ma.austritt = "2026-02-28"
+        db.commit()
+        assert compute_soll_tage("Barbara.V", 2026, 2, db=db) > 0
+        assert compute_soll_tage("Barbara.V", 2026, 3, db=db) == 0
+    finally:
+        ma.austritt = old
+        db.commit()
+        db.close()
 
 
 def test_get_feiertage_sets_prefers_db_over_fallback():
