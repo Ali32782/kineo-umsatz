@@ -261,8 +261,12 @@ def get_dashboard(
     for r in results:
         schedule = schedule_map.get(r["name"])
         ma_bg = next((m.bg_pct for m in mas if m.name == r["name"]), r.get("bg_pct", 1.0))
-        fte_weights = get_standort_fte_weights(r["name"], r["team"], ma_bg, schedule)
-        umsatz_splits = get_standort_splits(r["name"], r["team"], schedule)
+        primary = r["team"]
+        fte_weights = get_standort_fte_weights(r["name"], primary, ma_bg, schedule)
+        umsatz_splits = get_standort_splits(r["name"], primary, schedule)
+        if not fte_weights:
+            fte_weights = {primary: ma_bg}
+            umsatz_splits = {primary: 1.0}
         for standort, fte in fte_weights.items():
             ma_data_expanded.append({
                 **r,
@@ -270,7 +274,7 @@ def get_dashboard(
                 "umsatz": r["umsatz"] * umsatz_splits.get(standort, 0),
                 "bg_pct": fte,
                 "standort_pct": round(fte / ma_bg * 100) if ma_bg else 0,
-                "primary_team": r["team"],
+                "primary_team": primary,
             })
 
     # Team aggregates from expanded data
@@ -294,6 +298,9 @@ def get_dashboard(
     }
 
     total_fte_all = round(sum(r["bg_pct"] for r in ma_data_expanded), 1)
+    from umsatz_agg import sum_umsatz_for_month
+    umsatz_map_all = {(r.ma_name, r.month): r.umsatz for r in umsatz_rows}
+    total_umsatz = round(sum_umsatz_for_month(umsatz_map_all, mas, month))
 
     return {
         "year": year,
@@ -301,7 +308,8 @@ def get_dashboard(
         "month_name": MONTH_NAMES_DE[month],
         "ma_data": ma_data_expanded,
         "team_summary": team_summary,
-        "total_umsatz": round(sum(r["umsatz"] for r in results)),
+        "total_umsatz": total_umsatz,
+        "team_umsatz_sum": round(sum(v["umsatz"] for v in team_summary.values())),
         "total_fte": total_fte_all,
     }
 
@@ -331,6 +339,9 @@ def get_ytd(
     for r in inputs_all:
         input_map[(r.ma_name, r.month)] = r
 
+    from umsatz_agg import ma_year_umsatz, monthly_and_year_totals
+    monthly_totals, year_total_umsatz = monthly_and_year_totals(umsatz_map, mas, year)
+
     results = []
     for ma in mas:
         name = ma.name
@@ -340,13 +351,10 @@ def get_ytd(
             if not is_employed_in_month(ma.eintritt, ma.austritt, year, m, ma.is_active):
                 monthly.append(None)
                 continue
-            umsatz = umsatz_map.get((name, m), 0)
+            umsatz = umsatz_map.get((name, m), 0) or 0
             inp = input_map.get((name, m))
             soll = compute_soll_tage(name, year, m, db=db)
-            if soll == 0:
-                monthly.append(None)
-                continue
-            if umsatz == 0 and not inp:
+            if umsatz == 0 and soll == 0 and not inp:
                 monthly.append(None)
                 continue
             zeg = compute_zeg(
@@ -360,7 +368,7 @@ def get_ytd(
                 db=db,
             )
             monthly.append({
-                "umsatz": umsatz,
+                "umsatz": round(umsatz),
                 "zeg_b": zeg["zeg_b"],
                 "color": zeg_color(zeg["zeg_b"])
             })
@@ -377,12 +385,15 @@ def get_ytd(
             "monthly": monthly,
             "avg_zeg_b": avg_zeg_b,
             "color": zeg_color(avg_zeg_b),
-            "total_umsatz": sum(
-                (m["umsatz"] for m in monthly if m), 0
-            ),
+            "total_umsatz": round(ma_year_umsatz(umsatz_map, ma, year)),
         })
 
-    return {"year": year, "ma_data": results}
+    return {
+        "year": year,
+        "ma_data": results,
+        "monthly_totals": monthly_totals,
+        "year_total_umsatz": year_total_umsatz,
+    }
 
 # ── Excel Export ──────────────────────────────────────────────────────────
 @app.get("/api/export/excel/{year}")

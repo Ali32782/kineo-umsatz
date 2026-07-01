@@ -292,7 +292,6 @@ function DashboardPage() {
   if (!data) return null
 
   const teams = Object.entries(data.team_summary || {})
-    .filter(([t]) => t !== "Management")
     .sort(([,a],[,b]) => (b.zeg_b_avg||0) - (a.zeg_b_avg||0))
 
   return (
@@ -594,6 +593,16 @@ function OverviewPage() {
 
   const SortArrow = ({ k }) => sortKey === k ? <span style={{ marginLeft: 4 }}>{sortDir === "asc" ? "▲" : "▼"}</span> : null
 
+  const filtered = filterTeam !== "Alle" || filterRole !== "Alle"
+  const displayMonthlyTotals = filtered
+    ? Array.from({ length: 12 }, (_, mi) =>
+        rows.reduce((s, ma) => s + ((ma.monthly || [])[mi]?.umsatz || 0), 0)
+      )
+    : (data.monthly_totals || [])
+  const displayYearTotal = filtered
+    ? rows.reduce((s, ma) => s + (ma.total_umsatz || 0), 0)
+    : (data.year_total_umsatz || 0)
+
   const selectStyle = { padding: "6px 10px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12, background: "white", color: "#333" }
 
   return (
@@ -626,6 +635,10 @@ function OverviewPage() {
           </button>
         )}
         <div style={{ marginLeft: "auto", fontSize: 12, color: "#888" }}>{rows.length} Mitarbeiter</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#004869" }}>
+          Jahresumsatz: CHF {displayYearTotal.toLocaleString("de-CH")}
+          {filtered && <span style={{ fontWeight: 400, color: "#888" }}> (gefiltert)</span>}
+        </div>
       </div>
 
       <div style={{ background: "white", borderRadius: 8, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
@@ -647,6 +660,9 @@ function OverviewPage() {
                 <th onClick={() => toggleSort("avg")} style={{ padding: "12px 12px", textAlign: "center", minWidth: 80, borderLeft: "2px solid rgba(255,255,255,0.3)", cursor: "pointer", userSelect: "none" }}>
                   Ø ZEG-B<SortArrow k="avg" />
                 </th>
+                <th style={{ padding: "12px 12px", textAlign: "right", minWidth: 100, borderLeft: "2px solid rgba(255,255,255,0.3)" }}>
+                  Jahr CHF
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -662,10 +678,29 @@ function OverviewPage() {
                   <td style={{ padding: "6px 8px", textAlign: "center", borderLeft: "2px solid #EEE" }}>
                     <ZEGBadge value={ma.avg_zeg_b} color={ma.color} size="sm" />
                   </td>
+                  <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, borderLeft: "2px solid #EEE", fontSize: 11 }}>
+                    {(ma.total_umsatz||0).toLocaleString("de-CH")}
+                  </td>
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td colSpan={14} style={{ padding: 24, textAlign: "center", color: "#888" }}>Keine Mitarbeiter für diese Filterauswahl</td></tr>
+                <tr><td colSpan={15} style={{ padding: 24, textAlign: "center", color: "#888" }}>Keine Mitarbeiter für diese Filterauswahl</td></tr>
+              )}
+              {rows.length > 0 && (
+                <tr style={{ background: "#F0F4F6", fontWeight: 700 }}>
+                  <td style={{ padding: "10px 16px", position: "sticky", left: 0, background: "#F0F4F6", borderRight: "1px solid #EEE" }} colSpan={2}>
+                    Monatssumme (≙ Dashboard)
+                  </td>
+                  {(displayMonthlyTotals||[]).map((t, mi) => (
+                    <td key={mi} style={{ padding: "8px 4px", textAlign: "center", fontSize: 10 }}>
+                      {t ? t.toLocaleString("de-CH") : "—"}
+                    </td>
+                  ))}
+                  <td style={{ borderLeft: "2px solid #DDD" }} />
+                  <td style={{ padding: "8px 12px", textAlign: "right", borderLeft: "2px solid #DDD" }}>
+                    {displayYearTotal.toLocaleString("de-CH")}
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
