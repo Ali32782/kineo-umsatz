@@ -198,6 +198,32 @@ def seed_multi_standort_schedules():
     db.commit()
     db.close()
 
+def seed_all_ma_schedules():
+    """Alle MA-Arbeitspläne aus MA_PATTERNS (10 % pro Halbtag, Standort = Team)."""
+    from calc import MA_PATTERNS, MA_STANDORT_SPLITS, day_pct_to_halves, schedule_needs_reseed
+    db = SessionLocal()
+    day_keys = {0: "mo", 1: "di", 2: "mi", 3: "do", 4: "fr"}
+    mas = db.query(MAStammdaten).filter_by(is_active=True).all()
+    for ma in mas:
+        if ma.name in MA_STANDORT_SPLITS:
+            continue
+        entries = db.query(MAScheduleEntry).filter_by(ma_name=ma.name).all()
+        if not schedule_needs_reseed(entries):
+            continue
+        db.query(MAScheduleEntry).filter_by(ma_name=ma.name).delete()
+        pat = MA_PATTERNS.get(ma.name, {})
+        standort = ma.team if ma.team not in ("Management", "Office") else None
+        for wd, key in day_keys.items():
+            vm, nm = day_pct_to_halves(pat.get(key, 0) or 0)
+            if vm or nm:
+                db.add(MAScheduleEntry(
+                    ma_name=ma.name, weekday=wd,
+                    vm_pct=vm, vm_standort=standort if vm else None,
+                    nm_pct=nm, nm_standort=standort if nm else None,
+                ))
+    db.commit()
+    db.close()
+
 def migrate_schedule_halbtag_units():
     """Alte Einträge hatten 0.20 pro Halbtag — korrekt ist 0.10 (= 10 % der Woche)."""
     db = SessionLocal()
@@ -219,6 +245,7 @@ def init_db():
     migrate_schedule_halbtag_units()
     seed_initial_data()
     seed_multi_standort_schedules()
+    seed_all_ma_schedules()
 
 def seed_initial_data():
     """Seed users and MA Stammdaten on first run"""

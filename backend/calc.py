@@ -61,6 +61,21 @@ MA_STANDORT_SPLITS = {
     "Meike.V":  {"Zollikon": 0.5, "Seefeld": 0.5},
 }
 
+def day_pct_to_halves(day_pct: float) -> tuple[float, float]:
+    """MA_PATTERNS-Tagesanteil (0.10=Halbtag, 0.20=Tag) → (vm_pct, nm_pct)."""
+    if day_pct <= 0:
+        return 0.0, 0.0
+    if day_pct <= HALBTAG_PCT + 0.001:
+        return round(day_pct, 2), 0.0
+    half = round(day_pct / 2, 2)
+    return half, half
+
+def schedule_needs_reseed(entries) -> bool:
+    """True wenn kein Plan existiert oder noch alte Halbtag-Einheiten (≥15 %) drin sind."""
+    if not entries:
+        return True
+    return any((e.vm_pct or 0) >= 0.15 or (e.nm_pct or 0) >= 0.15 for e in entries)
+
 def get_standort_splits(ma_name: str, primary_team: str, schedule_entries=None) -> dict:
     """Standort-Aufteilung: DB-Schedule mit Standorten > MA_STANDORT_SPLITS > Primary-Team."""
     if schedule_entries:
