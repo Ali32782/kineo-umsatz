@@ -16,6 +16,7 @@ from calc import (  # noqa: E402
     get_feiertage_sets,
     default_feiertage_entries,
     get_pattern,
+    get_standort_splits,
 )
 from database import init_db, SessionLocal, MAScheduleEntry, Feiertag, Base, engine  # noqa: E402
 
@@ -114,6 +115,29 @@ def test_schedule_overrides_hardcoded_pattern():
         db.query(MAScheduleEntry).filter_by(ma_name="Test.MA").delete()
         db.commit()
         db.close()
+
+
+def test_get_standort_splits_helen_meike():
+    splits = get_standort_splits("Helen.S", "Zollikon")
+    assert splits == {"Zollikon": 0.5, "Seefeld": 0.5}
+    splits = get_standort_splits("Meike.V", "Seefeld")
+    assert splits == {"Zollikon": 0.5, "Seefeld": 0.5}
+
+
+def test_get_standort_splits_schedule_overrides():
+    class E:
+        def __init__(self, vm_pct, vm_standort, nm_pct=0, nm_standort=None):
+            self.vm_pct = vm_pct
+            self.vm_standort = vm_standort
+            self.nm_pct = nm_pct
+            self.nm_standort = nm_standort
+    entries = [E(0.20, "Wipkingen", 0.20, "Wipkingen")]
+    splits = get_standort_splits("Helen.S", "Zollikon", entries)
+    assert splits == {"Wipkingen": 1.0}
+
+
+def test_get_standort_splits_primary_fallback():
+    assert get_standort_splits("Emma.L", "Wipkingen") == {"Wipkingen": 1.0}
 
 
 def test_get_feiertage_sets_prefers_db_over_fallback():

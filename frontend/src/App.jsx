@@ -1,5 +1,6 @@
 import { useState, useEffect, createContext, useContext } from "react"
 import { API, CURRENT_YEAR, DEFAULT_YEAR, DEFAULT_MONTH, periodForMonth } from "./config.js"
+import { CD, KineoLogo, NavIcon, ScheduleHelp, Bell, LogOut, Calendar, Users } from "./brand.jsx"
 
 const AuthCtx = createContext(null)
 
@@ -95,7 +96,7 @@ function NotificationBell({ setPage }) {
         borderRadius: 4, padding: "6px 14px", cursor: "pointer", color: "white",
         display: "flex", alignItems: "center", gap: 8, fontSize: 13, width: "100%"
       }}>
-        <span>🔔</span>
+        <Bell size={16} strokeWidth={1.75} />
         <span>{count > 0 ? `${count} Hinweis${count>1?"e":""}` : "Keine Hinweise"}</span>
         {count > 0 && <span style={{
           background: "#FF4444", color: "white", borderRadius: "50%",
@@ -110,8 +111,10 @@ function NotificationBell({ setPage }) {
           background: "white", borderRadius: 8, boxShadow: "0 8px 30px rgba(0,0,0,0.2)",
           border: "1px solid #E0E0E0", overflow: "hidden"
         }}>
-          <div style={{ background: "#1C5B7A", color: "white", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontWeight: 700 }}>🔔 Hinweise ({count})</span>
+          <div style={{ background: "#004869", color: "white", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+              <Bell size={16} /> Hinweise ({count})
+            </span>
             <button onClick={markAllRead} style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "white", padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>
               Alle als gelesen markieren
             </button>
@@ -128,7 +131,7 @@ function NotificationBell({ setPage }) {
                       <div style={{ fontSize: 12, color: "#555", marginTop: 4 }}>
                         MA im Arbeitstag-Muster erfassen und aktivieren.
                         <button onClick={() => { setPage("admin"); markRead(n.id); setOpen(false) }}
-                          style={{ background: "none", border: "none", color: "#1C5B7A", cursor: "pointer", fontWeight: 700, fontSize: 12, padding: "0 4px" }}>
+                          style={{ background: "none", border: "none", color: "#004869", cursor: "pointer", fontWeight: 700, fontSize: 12, padding: "0 4px" }}>
                           → Admin öffnen
                         </button>
                       </div>
@@ -137,7 +140,7 @@ function NotificationBell({ setPage }) {
                       <div style={{ fontSize: 12, color: "#555", marginTop: 4 }}>
                         Arbeitstag-Muster für {n.detail} fehlt noch.
                         <button onClick={() => { setPage("admin"); markRead(n.id); setOpen(false) }}
-                          style={{ background: "none", border: "none", color: "#1C5B7A", cursor: "pointer", fontWeight: 700, fontSize: 12, padding: "0 4px" }}>
+                          style={{ background: "none", border: "none", color: "#004869", cursor: "pointer", fontWeight: 700, fontSize: 12, padding: "0 4px" }}>
                           → Admin öffnen
                         </button>
                       </div>
@@ -161,34 +164,35 @@ function NotificationBell({ setPage }) {
 function Layout({ children, page, setPage }) {
   const auth = useAuth()
   const nav = [
-    { id: "dashboard", label: "Dashboard", icon: "📊" },
-    { id: "upload", label: "Daten eingeben", icon: "📥", roles: ["ceo","bd"] },
-    { id: "overview", label: "Jahresübersicht", icon: "📈" },
-    { id: "exports", label: "Exporte", icon: "⬇️", roles: ["ceo"] },
-    { id: "bilats", label: "Bilaterals", icon: "📋" },
-    { id: "lohnrechner", label: "Lohnrechner", icon: "🧮", roles: ["ceo"] },
-    { id: "profil", label: "Profil", icon: "👤" },
-    { id: "admin", label: "Admin", icon: "⚙️", roles: ["ceo"] },
+    { id: "dashboard", label: "Dashboard" },
+    { id: "upload", label: "Daten eingeben", roles: ["ceo","bd"] },
+    { id: "overview", label: "Jahresübersicht" },
+    { id: "exports", label: "Exporte", roles: ["ceo"] },
+    { id: "bilats", label: "Bilaterals" },
+    { id: "lohnrechner", label: "Lohnrechner", roles: ["ceo"] },
+    { id: "profil", label: "Profil" },
+    { id: "admin", label: "Admin", roles: ["ceo"] },
   ].filter(n => !n.roles || n.roles.includes(auth.user?.role))
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#F2F5F7", fontFamily: "Inter, system-ui, sans-serif" }}>
+    <div style={{ display: "flex", minHeight: "100vh", background: CD.bg, fontFamily: CD.fontBody }}>
       {/* Sidebar */}
-      <div style={{ width: 220, background: "#0F3A50", color: "white", flexShrink: 0, display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "28px 20px 24px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-          <div style={{fontWeight:800,fontSize:18,letterSpacing:3,color:"white"}}>KINEO</div>
-          <div style={{ fontSize: 10, opacity: 0.45, marginTop: 8, letterSpacing: 2, textTransform: "uppercase", fontFamily: "Inter, system-ui, sans-serif" }}>Kineo Analytics</div>
+      <div style={{ width: 220, background: CD.darkBlue, color: "white", flexShrink: 0, display: "flex", flexDirection: "column" }}>
+        <div style={{ padding: "24px 20px 20px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+          <KineoLogo variant="white" height={34} />
+          <div style={{ fontSize: 10, opacity: 0.45, marginTop: 10, letterSpacing: 2, textTransform: "uppercase", fontFamily: CD.fontDisplay }}>Analytics</div>
           {auth.user?.role === "ceo" && <NotificationBell setPage={setPage} />}
         </div>
         <nav style={{ flex: 1 }}>
           {nav.map(n => (
             <button key={n.id} onClick={() => setPage(n.id)} style={{
               width: "100%", padding: "11px 20px", background: page === n.id ? "rgba(255,255,255,0.12)" : "transparent",
-              border: "none", borderLeft: page === n.id ? "3px solid #7BBFD4" : "3px solid transparent",
+              border: "none", borderLeft: page === n.id ? "3px solid #fa4616" : "3px solid transparent",
               color: page === n.id ? "white" : "rgba(255,255,255,0.7)", textAlign: "left", cursor: "pointer", fontSize: 13,
-              display: "flex", alignItems: "center", gap: 10, letterSpacing: 0.2,
+              display: "flex", alignItems: "center", gap: 10,
             }}>
-              <span>{n.icon}</span>{n.label}
+              <NavIcon name={n.id} size={17} color={page === n.id ? "#fa4616" : "rgba(255,255,255,0.65)"} />
+              {n.label}
             </button>
           ))}
         </nav>
@@ -197,8 +201,9 @@ function Layout({ children, page, setPage }) {
           <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 8 }}>{auth.user?.role?.toUpperCase()}</div>
           <button onClick={auth.logout} style={{
             background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
-            color: "white", padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12
-          }}>Abmelden</button>
+            color: "white", padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12,
+            display: "flex", alignItems: "center", gap: 6,
+          }}><LogOut size={14} /> Abmelden</button>
         </div>
       </div>
       {/* Main */}
@@ -231,12 +236,13 @@ function LoginPage({ onLogin }) {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,#1C5B7A,#0F3A50)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,#004869,#0a2734)", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ background: "white", borderRadius: 10, padding: "48px 40px", width: 380, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>🏥</div>
-          <div style={{ fontSize: 24, fontWeight: 700, fontFamily: "'Barlow Condensed', sans-serif", color: "#1C5B7A" }}>KINEO AG</div>
-          <div style={{ fontSize: 13, color: "#888", marginTop: 4 }}>Kineo Analytics</div>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+            <KineoLogo variant="dark" height={48} />
+          </div>
+          <div style={{ fontSize: 13, color: "#888", marginTop: 4, fontFamily: CD.fontDisplay, letterSpacing: "0.08em", textTransform: "uppercase" }}>Analytics</div>
         </div>
         <form onSubmit={submit}>
           {["username","password"].map(f => (
@@ -254,7 +260,7 @@ function LoginPage({ onLogin }) {
           ))}
           {error && <div style={{ background: "#FFE8E8", color: "#c0392b", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{error}</div>}
           <button type="submit" disabled={loading} style={{
-            width: "100%", padding: "12px", background: "#1C5B7A", color: "white",
+            width: "100%", padding: "12px", background: "#004869", color: "white",
             border: "none", borderRadius: 8, fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 8
           }}>{loading ? "Anmelden…" : "Anmelden"}</button>
         </form>
@@ -294,7 +300,7 @@ function DashboardPage() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
         <div>
-          <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif", margin: 0, fontSize: 24, color: "#1a1a1a", fontWeight: 800 }}>Dashboard</h1>
+          <h1 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: 0, fontSize: 24, color: "#1a1a1a", fontWeight: 800 }}>Dashboard</h1>
           <div style={{ fontSize: 13, color: "#888", marginTop: 4 }}>ZEG-B Übersicht pro Standort und Mitarbeiter</div>
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -332,7 +338,7 @@ function DashboardPage() {
             <div key={team} style={{ background: "white", borderRadius: 8, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
               <div style={{ background: c.bg, borderBottom: `3px solid ${c.border}`, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 16, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.05em", color: "#1a1a1a" }}>{team}</div>
+                  <div style={{ fontWeight: 700, fontSize: 16, fontFamily: "'Roboto Condensed', sans-serif", letterSpacing: "0.05em", color: "#1a1a1a" }}>{team}</div>
                   <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
                     CHF {(stats.umsatz||0).toLocaleString("de-CH")}
                   </div>
@@ -342,8 +348,8 @@ function DashboardPage() {
               <div style={{ padding: "12px 20px" }}>
                 {/* FTE Total */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "2px solid #EEE", marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: "#1C5B7A", textTransform: "uppercase", letterSpacing: 0.5 }}>FTE Total</span>
-                  <span style={{ fontSize: 14, fontWeight: 800, color: "#1C5B7A" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#004869", textTransform: "uppercase", letterSpacing: 0.5 }}>FTE Total</span>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: "#004869" }}>
                     {teamMAs.reduce((s, ma) => s + (ma.bg_pct||0), 0).toFixed(1)}
                   </span>
                 </div>
@@ -440,7 +446,7 @@ function UploadPage() {
 
   return (
     <div>
-      <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.03em" }}>Daten eingeben</h1>
+      <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Roboto Condensed', sans-serif", letterSpacing: "0.03em" }}>Daten eingeben</h1>
       <div style={{ color: "#888", marginBottom: 28, fontSize: 13 }}>CSV hochladen + Tätigkeiten erfassen</div>
 
       {/* Month/Year selector */}
@@ -452,8 +458,8 @@ function UploadPage() {
           {months.map((m,i) => <option key={i+1} value={i+1}>{m} {year}</option>)}
         </select>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button onClick={() => setStep(1)} style={{ padding: "8px 16px", background: step===1?"#1C5B7A":"#F0F0F0", color: step===1?"white":"#333", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>1. CSV Upload</button>
-          <button onClick={() => setStep(2)} style={{ padding: "8px 16px", background: step===2?"#1C5B7A":"#F0F0F0", color: step===2?"white":"#333", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>2. Tätigkeiten</button>
+          <button onClick={() => setStep(1)} style={{ padding: "8px 16px", background: step===1?"#004869":"#F0F0F0", color: step===1?"white":"#333", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>1. CSV Upload</button>
+          <button onClick={() => setStep(2)} style={{ padding: "8px 16px", background: step===2?"#004869":"#F0F0F0", color: step===2?"white":"#333", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>2. Tätigkeiten</button>
         </div>
       </div>
 
@@ -466,7 +472,7 @@ function UploadPage() {
       {/* Step 1: CSV Upload */}
       {step === 1 && (
         <div style={{ background: "white", borderRadius: 8, padding: "32px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-          <h3 style={{ fontFamily: "'Barlow Condensed', sans-serif", margin: "0 0 20px", color: "#1C5B7A" }}>CSV aus Software hochladen</h3>
+          <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 20px", color: "#004869" }}>CSV aus Software hochladen</h3>
           <div style={{ border: "2px dashed #DDD", borderRadius: 8, padding: "40px", textAlign: "center", marginBottom: 20, background: "#FAFAFA" }}
             onDragOver={e => e.preventDefault()}
             onDrop={e => { e.preventDefault(); setCsvFile(e.dataTransfer.files[0]) }}>
@@ -474,7 +480,7 @@ function UploadPage() {
             <div style={{ fontWeight: 600, marginBottom: 8 }}>CSV-Datei hierher ziehen</div>
             <div style={{ color: "#888", fontSize: 13, marginBottom: 16 }}>Oder:</div>
             <input type="file" accept=".csv" onChange={e => setCsvFile(e.target.files[0])} style={{ display: "none" }} id="csv-input" />
-            <label htmlFor="csv-input" style={{ background: "#1C5B7A", color: "white", padding: "10px 24px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600 }}>Datei auswählen</label>
+            <label htmlFor="csv-input" style={{ background: "#004869", color: "white", padding: "10px 24px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600 }}>Datei auswählen</label>
           </div>
           {csvFile && (
             <div style={{ background: "#E8F8E8", padding: "12px 16px", borderRadius: 8, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -482,19 +488,19 @@ function UploadPage() {
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{csvFile.name}</div>
                 <div style={{ fontSize: 12, color: "#888" }}>{(csvFile.size/1024).toFixed(1)} KB</div>
               </div>
-              <button onClick={uploadCSV} disabled={saving} style={{ background: "#1C5B7A", color: "white", border: "none", padding: "10px 24px", borderRadius: 8, cursor: "pointer", fontWeight: 700 }}>
+              <button onClick={uploadCSV} disabled={saving} style={{ background: "#004869", color: "white", border: "none", padding: "10px 24px", borderRadius: 8, cursor: "pointer", fontWeight: 700 }}>
                 {saving ? "Lade hoch…" : "Hochladen & Importieren"}
               </button>
             </div>
           )}
           {csvPreview && (
             <div>
-              <h4 style={{ fontFamily: "'Barlow Condensed', sans-serif", color: "#1C5B7A", margin: "0 0 12px" }}>Importierte Umsätze:</h4>
+              <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", color: "#004869", margin: "0 0 12px" }}>Importierte Umsätze:</h4>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 8 }}>
                 {Object.entries(csvPreview).map(([name, amt]) => (
                   <div key={name} style={{ background: "#F5F5F5", borderRadius: 8, padding: "8px 12px", display: "flex", justifyContent: "space-between" }}>
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{name}</span>
-                    <span style={{ fontSize: 13, color: "#1C5B7A" }}>CHF {(+amt).toLocaleString("de-CH")}</span>
+                    <span style={{ fontSize: 13, color: "#004869" }}>CHF {(+amt).toLocaleString("de-CH")}</span>
                   </div>
                 ))}
               </div>
@@ -507,15 +513,15 @@ function UploadPage() {
       {step === 2 && (
         <div style={{ background: "white", borderRadius: 8, padding: "24px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-            <h3 style={{ fontFamily: "'Barlow Condensed', sans-serif", margin: 0, color: "#1C5B7A" }}>Tätigkeiten — {months[month-1]} {year}</h3>
-            <button onClick={saveInputs} disabled={saving} style={{ background: "#1C5B7A", color: "white", border: "none", padding: "10px 24px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 14 }}>
+            <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: 0, color: "#004869" }}>Tätigkeiten — {months[month-1]} {year}</h3>
+            <button onClick={saveInputs} disabled={saving} style={{ background: "#004869", color: "white", border: "none", padding: "10px 24px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 14 }}>
               {saving ? "Speichern…" : "Alle speichern"}
             </button>
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
-                <tr style={{ background: "#1C5B7A", color: "white" }}>
+                <tr style={{ background: "#004869", color: "white" }}>
                   {["Mitarbeiter","Team","Ferien (T)","Kurse (h)","Workshop (h)","Marketing (h)","Laufanalyse (h)","Krank (T)"].map(h => (
                     <th key={h} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 700, whiteSpace: "nowrap" }}>{h}</th>
                   ))}
@@ -594,7 +600,7 @@ function OverviewPage() {
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.03em" }}>Jahresübersicht {year}</h1>
+          <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Roboto Condensed', sans-serif", letterSpacing: "0.03em" }}>Jahresübersicht {year}</h1>
           <div style={{ color: "#888", fontSize: 13 }}>ZEG-B pro Monat und Mitarbeiter</div>
         </div>
         <YearSelect value={year} onChange={setYear} years={years} />
@@ -626,8 +632,8 @@ function OverviewPage() {
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
-              <tr style={{ background: "#1C5B7A", color: "white" }}>
-                <th onClick={() => toggleSort("name")} style={{ padding: "12px 16px", textAlign: "left", position: "sticky", left: 0, background: "#1C5B7A", zIndex: 2, minWidth: 140, cursor: "pointer", userSelect: "none" }}>
+              <tr style={{ background: "#004869", color: "white" }}>
+                <th onClick={() => toggleSort("name")} style={{ padding: "12px 16px", textAlign: "left", position: "sticky", left: 0, background: "#004869", zIndex: 2, minWidth: 140, cursor: "pointer", userSelect: "none" }}>
                   Mitarbeiter<SortArrow k="name" />
                 </th>
                 <th onClick={() => toggleSort("team")} style={{ padding: "12px 8px", textAlign: "center", minWidth: 60, cursor: "pointer", userSelect: "none" }}>
@@ -707,7 +713,7 @@ function ExportsPage() {
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.03em" }}>Exporte</h1>
+          <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Roboto Condensed', sans-serif", letterSpacing: "0.03em" }}>Exporte</h1>
           <div style={{ color: "#888", fontSize: 13 }}>Nur für CEO / COO</div>
         </div>
         <YearSelect value={year} onChange={setYear} years={years} />
@@ -719,12 +725,12 @@ function ExportsPage() {
         {isCEO && (
           <div style={{ background: "white", borderRadius: 8, padding: "28px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
             <div style={{ fontSize: 36, marginBottom: 16 }}>📊</div>
-            <h3 style={{ fontFamily: "'Barlow Condensed', sans-serif", margin: "0 0 8px" }}>Umsatzanalyse Excel</h3>
+            <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px" }}>Umsatzanalyse Excel</h3>
             <p style={{ color: "#888", fontSize: 13, marginBottom: 20, lineHeight: 1.5 }}>
               Komplette Jahresübersicht mit allen Monaten, Arbeitstag-Muster, ZEG-A/B/C und MA-Details.
             </p>
             <button onClick={() => download(`/api/export/excel/${year}`,`Kineo_Umsatzanalyse_${year}.xlsx`,"excel")}
-              disabled={loading.excel} style={{ background:"#1C5B7A",color:"white",border:"none",padding:"12px 24px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:14,width:"100%" }}>
+              disabled={loading.excel} style={{ background:"#004869",color:"white",border:"none",padding:"12px 24px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:14,width:"100%" }}>
               {loading.excel ? "Wird erstellt…" : "Excel herunterladen"}
             </button>
           </div>
@@ -733,7 +739,7 @@ function ExportsPage() {
         {/* Bilaterals - alle als ZIP */}
         <div style={{ background: "white", borderRadius: 8, padding: "28px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
           <div style={{ fontSize: 36, marginBottom: 16 }}>📁</div>
-          <h3 style={{ fontFamily: "'Barlow Condensed', sans-serif", margin: "0 0 8px" }}>Alle Bilaterals als ZIP</h3>
+          <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px" }}>Alle Bilaterals als ZIP</h3>
           <p style={{ color: "#888", fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
             {isCEO ? "Alle MA" : "Ihr Team"} — Word-Dokumente mit ZEG-B Daten.
           </p>
@@ -742,7 +748,7 @@ function ExportsPage() {
             {months.map((m,i) => <option key={i+1} value={i+1}>Stand: {m} {year}</option>)}
           </select>
           <button onClick={() => download(`/api/export/bilats/${year}/${encodeURIComponent(periodForMonth(bilat_month, year))}/${bilat_month}`,`Kineo_Bilats_${months[bilat_month-1]}_${year}.zip`,"bilat_all")}
-            disabled={loading.bilat_all} style={{ background:"#1C5B7A",color:"white",border:"none",padding:"12px 24px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:14,width:"100%" }}>
+            disabled={loading.bilat_all} style={{ background:"#004869",color:"white",border:"none",padding:"12px 24px",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:14,width:"100%" }}>
             {loading.bilat_all ? "Wird erstellt…" : "ZIP herunterladen"}
           </button>
         </div>
@@ -750,7 +756,7 @@ function ExportsPage() {
         {/* Bilaterals - einzeln */}
         <div style={{ background: "white", borderRadius: 8, padding: "28px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
           <div style={{ fontSize: 36, marginBottom: 16 }}>📝</div>
-          <h3 style={{ fontFamily: "'Barlow Condensed', sans-serif", margin: "0 0 8px" }}>Bilateral einzeln</h3>
+          <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px" }}>Bilateral einzeln</h3>
           <p style={{ color: "#888", fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
             Einzelnes Bilateral für eine/n Mitarbeiter/in herunterladen.
           </p>
@@ -771,7 +777,7 @@ function ExportsPage() {
                     `Bilat_${ma.name.replace(".","_")}_${months[bilat_month-1]}_${year}.docx`,
                     `bilat_${ma.name}`)}
                   disabled={loading[`bilat_${ma.name}`]}
-                  style={{ background:"#E4EEF3",color:"#1C5B7A",border:"none",padding:"6px 14px",
+                  style={{ background:"#E4EEF3",color:"#004869",border:"none",padding:"6px 14px",
                     borderRadius:6,cursor:"pointer",fontWeight:600,fontSize:12,whiteSpace:"nowrap" }}>
                   {loading[`bilat_${ma.name}`] ? "…" : "⬇ Word"}
                 </button>
@@ -848,13 +854,13 @@ function AdminPage() {
   }
 
   const inp = (style={}) => ({padding:"8px 10px",border:"1.5px solid #DDD",borderRadius:6,fontSize:13,...style})
-  const btn = (bg="#1C5B7A",color="white") => ({background:bg,color,border:"none",padding:"8px 16px",borderRadius:6,cursor:"pointer",fontWeight:600,fontSize:13})
+  const btn = (bg="#004869",color="white") => ({background:bg,color,border:"none",padding:"8px 16px",borderRadius:6,cursor:"pointer",fontWeight:600,fontSize:13})
 
-  const tabs = [["ma","👥 Mitarbeiter"],["schedule","📅 Arbeitstag-Muster"],["feiertage","🗓 Feiertage"]]
+  const tabs = [["ma","Mitarbeiter", Users],["schedule","Arbeitstag-Muster", Calendar],["feiertage","Feiertage", Calendar]]
 
   return (
     <div>
-      <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 8px",fontSize:24,fontWeight:800}}>Admin</h1>
+      <h1 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 8px",fontSize:24,fontWeight:800}}>Admin</h1>
       <div style={{color:"#888",marginBottom:24,fontSize:13}}>Nur CEO / COO</div>
 
       {msg && <div style={{background:msg.type==="ok"?"#E8F8E8":"#FFE8E8",color:msg.type==="ok"?"#1a7a1a":"#c0392b",padding:"10px 14px",borderRadius:8,marginBottom:16,fontSize:13,display:"flex",justifyContent:"space-between"}}>
@@ -863,11 +869,12 @@ function AdminPage() {
 
       {/* Tabs */}
       <div style={{display:"flex",gap:4,marginBottom:24,background:"white",padding:4,borderRadius:10,boxShadow:"0 2px 8px rgba(0,0,0,0.06)",width:"fit-content"}}>
-        {tabs.map(([id,label]) => (
+        {tabs.map(([id,label,TabIcon]) => (
           <button key={id} onClick={()=>setTab(id)} style={{
             padding:"8px 20px",border:"none",borderRadius:8,cursor:"pointer",fontWeight:600,fontSize:13,
-            background:tab===id?"#1C5B7A":"transparent",color:tab===id?"white":"#555"
-          }}>{label}</button>
+            background:tab===id?CD.primary:"transparent",color:tab===id?"white":"#555",
+            display: "flex", alignItems: "center", gap: 6,
+          }}><TabIcon size={15} />{label}</button>
         ))}
       </div>
 
@@ -875,13 +882,13 @@ function AdminPage() {
       {tab==="ma" && (
         <div style={{background:"white",borderRadius:12,padding:24,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-            <h3 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:0}}>Mitarbeiter/innen ({mas.filter(m=>m.is_active).length} aktiv)</h3>
+            <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:0}}>Mitarbeiter/innen ({mas.filter(m=>m.is_active).length} aktiv)</h3>
             <button style={btn()} onClick={()=>setShowNewMA(!showNewMA)}>+ Neue/r MA</button>
           </div>
 
           {showNewMA && (
-            <div style={{background:"#F0F8F0",border:"1.5px solid #1C5B7A",borderRadius:10,padding:20,marginBottom:20}}>
-              <h4 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 16px",color:"#1C5B7A"}}>Neue/r Mitarbeiter/in</h4>
+            <div style={{background:"#F0F8F0",border:"1.5px solid #004869",borderRadius:10,padding:20,marginBottom:20}}>
+              <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 16px",color:"#004869"}}>Neue/r Mitarbeiter/in</h4>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12}}>
                 {[["name","Kürzel (z.B. Maria.M)"],["display_name","Anzeigename"],["eintritt","Eintritt (YYYY-MM-DD)"],["austritt","Austritt (YYYY-MM-DD)"]].map(([k,l]) => (
                   <div key={k}><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:4}}>{l}</div>
@@ -904,7 +911,7 @@ function AdminPage() {
           )}
 
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-            <thead><tr style={{background:"#1C5B7A",color:"white"}}>
+            <thead><tr style={{background:"#004869",color:"white"}}>
               {["Name","Anzeige","Team","Rolle","BG%","Eintritt","Austritt","Status","Aktionen"].map(h=>(
                 <th key={h} style={{padding:"10px 12px",textAlign:"left",fontWeight:700}}>{h}</th>
               ))}
@@ -942,8 +949,8 @@ function AdminPage() {
                   </td>
                   <td style={{padding:"8px 12px"}}>
                     <div style={{display:"flex",gap:6}}>
-                      <button style={btn("#E4EEF3","#1C5B7A")} onClick={()=>setEditMA({...ma})}>✏️</button>
-                      <button style={btn("#E4EEF3","#1C5B7A")} onClick={()=>loadSchedule(ma.name)}>📅</button>
+                      <button style={btn("#E4EEF3","#004869")} onClick={()=>setEditMA({...ma})}>✏️</button>
+                      <button style={btn("#E4EEF3","#004869")} onClick={()=>loadSchedule(ma.name)}>📅</button>
                       <button style={btn(ma.is_active?"#FFE8E8":"#E8F8E8",ma.is_active?"#c0392b":"#1a7a1a")} onClick={()=>toggleMA(ma.name)}>
                         {ma.is_active?"Deakt.":"Aktivieren"}
                       </button>
@@ -959,7 +966,7 @@ function AdminPage() {
       {/* ── TAB: Arbeitstag-Muster (via MA selection) ── */}
       {tab==="schedule" && (
         <div style={{background:"white",borderRadius:12,padding:24,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-          <h3 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 20px"}}>Arbeitstag-Muster pro Mitarbeiter/in</h3>
+          <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 20px"}}>Arbeitstag-Muster pro Mitarbeiter/in</h3>
           {!scheduleMA ? (
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
               {mas.filter(m=>m.is_active).map(ma=>(
@@ -975,16 +982,19 @@ function AdminPage() {
           ) : (
             <div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-                <h4 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:0,color:"#1C5B7A"}}>📅 {scheduleMA}</h4>
+                <h4 style={{ fontFamily: CD.fontDisplay,margin:0,color:CD.primary,display:"flex",alignItems:"center",gap:8}}>
+                  <Calendar size={18} /> {scheduleMA}
+                </h4>
                 <button style={btn("#EEE","#333")} onClick={()=>setScheduleMA(null)}>← Zurück</button>
               </div>
+              <ScheduleHelp />
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                <thead><tr style={{background:"#1C5B7A",color:"white"}}>
+                <thead><tr style={{background:CD.primary,color:"white"}}>
                   <th style={{padding:"10px 14px",textAlign:"left"}}>Tag</th>
-                  <th style={{padding:"10px 14px",textAlign:"center"}}>VM %</th>
-                  <th style={{padding:"10px 14px",textAlign:"left"}}>VM Standort</th>
-                  <th style={{padding:"10px 14px",textAlign:"center"}}>NM %</th>
-                  <th style={{padding:"10px 14px",textAlign:"left"}}>NM Standort</th>
+                  <th style={{padding:"10px 14px",textAlign:"center"}}>Vormittag</th>
+                  <th style={{padding:"10px 14px",textAlign:"left"}}>Standort VM</th>
+                  <th style={{padding:"10px 14px",textAlign:"center"}}>Nachmittag</th>
+                  <th style={{padding:"10px 14px",textAlign:"left"}}>Standort NM</th>
                 </tr></thead>
                 <tbody>
                   {DAYS_DE.map((day,di) => {
@@ -998,9 +1008,13 @@ function AdminPage() {
                       <tr key={di} style={{background:di%2===0?"white":"#F8F9FA"}}>
                         <td style={{padding:"10px 14px",fontWeight:700}}>{day}</td>
                         <td style={{padding:"6px 8px",textAlign:"center"}}>
-                          <input type="number" min="0" max="0.2" step="0.05" value={entry.vm_pct||0}
-                            onChange={e=>update("vm_pct",e.target.value)}
-                            style={{...inp(),width:70,textAlign:"center"}} />
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+                            <input type="number" min="0" max="20" step="5"
+                              value={Math.round((entry.vm_pct||0)*100)}
+                              onChange={e=>update("vm_pct", +e.target.value / 100)}
+                              style={{...inp(),width:56,textAlign:"center"}} />
+                            <span style={{fontSize:11,color:"#888"}}>%</span>
+                          </div>
                         </td>
                         <td style={{padding:"6px 8px"}}>
                           <select value={entry.vm_standort||""} onChange={e=>update("vm_standort",e.target.value)}
@@ -1010,9 +1024,13 @@ function AdminPage() {
                           </select>
                         </td>
                         <td style={{padding:"6px 8px",textAlign:"center"}}>
-                          <input type="number" min="0" max="0.2" step="0.05" value={entry.nm_pct||0}
-                            onChange={e=>update("nm_pct",e.target.value)}
-                            style={{...inp(),width:70,textAlign:"center"}} />
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+                            <input type="number" min="0" max="20" step="5"
+                              value={Math.round((entry.nm_pct||0)*100)}
+                              onChange={e=>update("nm_pct", +e.target.value / 100)}
+                              style={{...inp(),width:56,textAlign:"center"}} />
+                            <span style={{fontSize:11,color:"#888"}}>%</span>
+                          </div>
                         </td>
                         <td style={{padding:"6px 8px"}}>
                           <select value={entry.nm_standort||""} onChange={e=>update("nm_standort",e.target.value)}
@@ -1039,14 +1057,14 @@ function AdminPage() {
       {tab==="feiertage" && (
         <div style={{background:"white",borderRadius:12,padding:24,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:12}}>
-            <h3 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:0}}>Feiertage Kanton Zürich</h3>
+            <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:0}}>Feiertage Kanton Zürich</h3>
             <div style={{display:"flex",gap:12,alignItems:"center"}}>
               <YearSelect value={feiertagYear} onChange={setFeiertagYear} years={years} />
               <button style={btn()} onClick={saveFeiertage}>Alle speichern</button>
             </div>
           </div>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,marginBottom:20}}>
-            <thead><tr style={{background:"#1C5B7A",color:"white"}}>
+            <thead><tr style={{background:"#004869",color:"white"}}>
               {["Datum","Name","Faktor (1.0 = ganz, 0.5 = halb)",""].map(h=>(
                 <th key={h} style={{padding:"10px 14px",textAlign:"left",fontWeight:700}}>{h}</th>
               ))}
@@ -1112,10 +1130,10 @@ function ProfilPage() {
 
   return (
     <div>
-      <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 28px",fontSize:24,fontWeight:800}}>Profil</h1>
+      <h1 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 28px",fontSize:24,fontWeight:800}}>Profil</h1>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,maxWidth:800}}>
         <div style={{background:"white",borderRadius:12,padding:28,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-          <h3 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 20px",color:"#1C5B7A"}}>👤 Mein Konto</h3>
+          <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 20px",color:"#004869"}}>👤 Mein Konto</h3>
           {[["Benutzername",auth.user?.username],["Name",auth.user?.full_name],["Rolle",auth.user?.role?.toUpperCase()],["Team",auth.user?.team||"Alle"]].map(([l,v])=>(
             <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"1px solid #F5F5F5"}}>
               <span style={{color:"#888",fontSize:13}}>{l}</span>
@@ -1124,7 +1142,7 @@ function ProfilPage() {
           ))}
         </div>
         <div style={{background:"white",borderRadius:12,padding:28,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-          <h3 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 20px",color:"#1C5B7A"}}>🔒 Passwort ändern</h3>
+          <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 20px",color:"#004869"}}>🔒 Passwort ändern</h3>
           {msg && <div style={{background:msg.type==="ok"?"#E8F8E8":"#FFE8E8",color:msg.type==="ok"?"#1a7a1a":"#c0392b",padding:"10px 14px",borderRadius:8,marginBottom:16,fontSize:13}}>{msg.text}</div>}
           {[["current_password","Aktuelles Passwort"],["new_password","Neues Passwort (min. 8 Zeichen)"],["confirm","Neues Passwort bestätigen"]].map(([k,l])=>(
             <div key={k} style={{marginBottom:14}}>
@@ -1133,7 +1151,7 @@ function ProfilPage() {
                 style={{width:"100%",padding:"10px 12px",border:"1.5px solid #DDD",borderRadius:8,fontSize:14,boxSizing:"border-box"}} />
             </div>
           ))}
-          <button onClick={submit} style={{width:"100%",padding:"11px",background:"#1C5B7A",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:14,marginTop:4}}>
+          <button onClick={submit} style={{width:"100%",padding:"11px",background:"#004869",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:14,marginTop:4}}>
             Passwort ändern
           </button>
         </div>
@@ -1202,14 +1220,14 @@ function BilatDataPage() {
       <div style={{display:"flex",gap:6}}>
         {[1,2,3,4,5].map(v=>(
           <button key={v} onClick={()=>setBilatData({...bilatData,[field]:bilatData[field]===v?null:v})}
-            style={{width:38,height:38,border:`2px solid ${bilatData[field]===v?"#1C5B7A":"#DDD"}`,
+            style={{width:38,height:38,border:`2px solid ${bilatData[field]===v?"#004869":"#DDD"}`,
               borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:14,
-              background:bilatData[field]===v?"#1C5B7A":"white",
+              background:bilatData[field]===v?"#004869":"white",
               color:bilatData[field]===v?"white":"#555"}}>
             {v}
           </button>
         ))}
-        {bilatData[field] && <span style={{fontSize:11,color:"#1C5B7A",alignSelf:"center",marginLeft:4}}>
+        {bilatData[field] && <span style={{fontSize:11,color:"#004869",alignSelf:"center",marginLeft:4}}>
           {["","Entwicklungsbedarf","Unter Erwartung","Erwartung erfüllt","Gut","Ausgezeichnet"][bilatData[field]]}
         </span>}
       </div>
@@ -1220,7 +1238,7 @@ function BilatDataPage() {
     <div>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24}}>
         <button onClick={()=>{setSelected(null);setMsg(null)}} style={{background:"#EEE",border:"none",padding:"8px 16px",borderRadius:8,cursor:"pointer",fontWeight:600}}>← Zurück</button>
-        <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:0,fontSize:22,fontWeight:800}}>Bilateral — {selected.display_name}</h1>
+        <h1 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:0,fontSize:22,fontWeight:800}}>Bilateral — {selected.display_name}</h1>
         <span style={{color:"#888",fontSize:13}}>{period}</span>
       </div>
       {msg && <div style={{background:msg.type==="ok"?"#E8F8E8":"#FFE8E8",color:msg.type==="ok"?"#1a7a1a":"#c0392b",padding:"10px 14px",borderRadius:8,marginBottom:16,fontSize:13}}>{msg.text}</div>}
@@ -1229,7 +1247,7 @@ function BilatDataPage() {
         {/* Kategorien A-D */}
         {["a","b","c","d"].map(k=>(
           <div key={k} style={{background:"white",borderRadius:12,padding:24,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-            <h4 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 16px",color:"#1C5B7A"}}>Kat. {k.toUpperCase()} — {KAT_LABELS[k]}</h4>
+            <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 16px",color:"#004869"}}>Kat. {k.toUpperCase()} — {KAT_LABELS[k]}</h4>
             <RatingButtons field={`kat_${k}_self`} label="Selbsteinschätzung MA (1–5)" />
             <RatingButtons field={`kat_${k}_fk`} label="Einschätzung Führungskraft (1–5)" />
             <div>
@@ -1242,22 +1260,22 @@ function BilatDataPage() {
 
         {/* Themen MA */}
         <div style={{background:"white",borderRadius:12,padding:24,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-          <h4 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 16px",color:"#1C5B7A"}}>💬 Themen des Mitarbeiters</h4>
+          <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 16px",color:"#004869"}}>💬 Themen des Mitarbeiters</h4>
           <textarea value={bilatData.themen_ma||""} onChange={e=>setBilatData({...bilatData,themen_ma:e.target.value})}
             style={{width:"100%",padding:"10px",border:"1.5px solid #DDD",borderRadius:8,fontSize:13,resize:"vertical",minHeight:100,boxSizing:"border-box"}} />
         </div>
 
         {/* Abschluss */}
         <div style={{background:"white",borderRadius:12,padding:24,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-          <h4 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 16px",color:"#1C5B7A"}}>✅ Abschluss</h4>
+          <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 16px",color:"#004869"}}>✅ Abschluss</h4>
           <div style={{marginBottom:16}}>
             <div style={{fontSize:12,fontWeight:600,color:"#555",marginBottom:8}}>Gesprächseindruck</div>
             <div style={{display:"flex",gap:8}}>
               {["Konstruktiv","Offen","Angespannt"].map(v=>(
                 <button key={v} onClick={()=>setBilatData({...bilatData,gespraechseindruck:bilatData.gespraechseindruck===v?null:v})}
-                  style={{padding:"7px 14px",border:`2px solid ${bilatData.gespraechseindruck===v?"#1C5B7A":"#DDD"}`,
+                  style={{padding:"7px 14px",border:`2px solid ${bilatData.gespraechseindruck===v?"#004869":"#DDD"}`,
                     borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:bilatData.gespraechseindruck===v?700:400,
-                    background:bilatData.gespraechseindruck===v?"#E4EEF3":"white",color:bilatData.gespraechseindruck===v?"#1C5B7A":"#555"}}>
+                    background:bilatData.gespraechseindruck===v?"#E4EEF3":"white",color:bilatData.gespraechseindruck===v?"#004869":"#555"}}>
                   {v}
                 </button>
               ))}
@@ -1277,7 +1295,7 @@ function BilatDataPage() {
       </div>
 
       <div style={{marginTop:20,display:"flex",gap:12}}>
-        <button onClick={save} style={{padding:"12px 32px",background:"#1C5B7A",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:15}}>
+        <button onClick={save} style={{padding:"12px 32px",background:"#004869",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:15}}>
           Speichern
         </button>
         <button onClick={()=>setSelected(null)} style={{padding:"12px 24px",background:"#EEE",color:"#333",border:"none",borderRadius:8,cursor:"pointer",fontWeight:600,fontSize:14}}>
@@ -1293,7 +1311,7 @@ function BilatDataPage() {
   const teams = [...new Set(overview.map(m=>m.team))]
   return (
     <div>
-      <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 8px",fontSize:24,fontWeight:800}}>Bilaterals</h1>
+      <h1 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 8px",fontSize:24,fontWeight:800}}>Bilaterals</h1>
       <div style={{color:"#888",marginBottom:18,fontSize:13}}>Bewertungen erfassen und speichern</div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap", alignItems: "center" }}>
@@ -1314,7 +1332,7 @@ function BilatDataPage() {
           <>
             <input value={newPeriod} onChange={e => setNewPeriod(e.target.value)} placeholder="z.B. HJ1 2027"
               style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12 }} />
-            <button onClick={addPeriod} style={{ padding: "6px 14px", background: "#1C5B7A", color: "white", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+            <button onClick={addPeriod} style={{ padding: "6px 14px", background: "#004869", color: "white", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
               Hinzufügen
             </button>
           </>
@@ -1328,7 +1346,7 @@ function BilatDataPage() {
           const done=teamMAs.filter(m=>m.has_data).length
           return (
             <div key={team} style={{background:"white",borderRadius:12,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-              <div style={{background:"#1C5B7A",padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{background:"#004869",padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <span style={{fontWeight:800,color:"white",fontSize:14}}>{team}</span>
                 <span style={{color:"rgba(255,255,255,0.8)",fontSize:12}}>{done}/{teamMAs.length} erfasst</span>
               </div>
@@ -1423,7 +1441,7 @@ function LohnrechnerPage() {
     <div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:28,flexWrap:"wrap",gap:12}}>
         <div>
-          <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 8px",fontSize:24,fontWeight:800}}>🧮 Umsatzlohn-Rechner</h1>
+          <h1 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 8px",fontSize:24,fontWeight:800}}>🧮 Umsatzlohn-Rechner</h1>
           <div style={{color:"#888",fontSize:13}}>Simulation Umsatzlohnmodell — {params.lohnquote}% Bruttolohnquote</div>
         </div>
         <label style={{fontSize:12,color:"#888",display:"flex",alignItems:"center",gap:6}}>
@@ -1435,7 +1453,7 @@ function LohnrechnerPage() {
       <div style={{display:"grid",gridTemplateColumns:"320px 1fr",gap:24}}>
         {/* Parameter */}
         <div style={{background:"white",borderRadius:12,padding:24,boxShadow:"0 2px 8px rgba(0,0,0,0.06)",height:"fit-content"}}>
-          <h3 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 20px",color:"#1C5B7A"}}>Parameter</h3>
+          <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 20px",color:"#004869"}}>Parameter</h3>
           {[
             ["umsatz","Monatsumsatz (CHF)",0,100000,500],
             ["bg_pct","Beschäftigungsgrad (%)",10,100,10],
@@ -1447,8 +1465,8 @@ function LohnrechnerPage() {
               <div style={{fontSize:12,fontWeight:600,color:"#555",marginBottom:6}}>{l}</div>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <input type="range" min={mn} max={mx} step={st} value={params[k]}
-                  onChange={e=>set(k,e.target.value)} style={{flex:1,accentColor:"#1C5B7A"}} />
-                <span style={{fontSize:14,fontWeight:700,color:"#1C5B7A",minWidth:60,textAlign:"right"}}>
+                  onChange={e=>set(k,e.target.value)} style={{flex:1,accentColor:"#004869"}} />
+                <span style={{fontSize:14,fontWeight:700,color:"#004869",minWidth:60,textAlign:"right"}}>
                   {k==="umsatz"||k==="fixlohn"||k==="ziel_chf"?`CHF ${Number(params[k]).toLocaleString("de-CH")}`:params[k]+"%"}
                 </span>
               </div>
@@ -1477,7 +1495,7 @@ function LohnrechnerPage() {
 
           {/* Vergleich Fix vs Variabel */}
           <div style={{background:"white",borderRadius:12,padding:24,boxShadow:"0 2px 8px rgba(0,0,0,0.06)",marginBottom:20}}>
-            <h4 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 20px",color:"#1C5B7A"}}>Fix vs. Variabel — Vergleich</h4>
+            <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 20px",color:"#004869"}}>Fix vs. Variabel — Vergleich</h4>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16}}>
               {[
                 ["Fixlohn (aktuell)",chf(p.fixlohn),"#555"],
@@ -1499,7 +1517,7 @@ function LohnrechnerPage() {
           {/* MA-spezifische Simulation */}
           {maCalc && (
             <div style={{background:"white",borderRadius:12,padding:24,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-              <h4 style={{ fontFamily: "'Barlow Condensed', sans-serif",margin:"0 0 16px",color:"#1C5B7A"}}>📊 {selectedMA} — Simulation mit Ist-Daten {dataYear}</h4>
+              <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 16px",color:"#004869"}}>📊 {selectedMA} — Simulation mit Ist-Daten {dataYear}</h4>
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
                 {[
                   ["Ø Monats-Umsatz",chf(maCalc.avgMonthlyUmsatz)],
@@ -1509,7 +1527,7 @@ function LohnrechnerPage() {
                 ].map(([l,v])=>(
                   <div key={l} style={{textAlign:"center",padding:"14px",background:"#F8F9FA",borderRadius:8}}>
                     <div style={{fontSize:11,color:"#888",fontWeight:600,marginBottom:6}}>{l}</div>
-                    <div style={{fontSize:16,fontWeight:800,color:"#1C5B7A"}}>{v}</div>
+                    <div style={{fontSize:16,fontWeight:800,color:"#004869"}}>{v}</div>
                   </div>
                 ))}
               </div>

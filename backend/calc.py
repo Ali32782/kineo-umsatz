@@ -52,6 +52,28 @@ MA_OVERRIDES = {
     "Sonia.M": {1: {"mo":0.20,"di":0.20,"mi":0.20,"do":0.20,"fr":0.00}},
 }
 
+# Anteil der Arbeitszeit pro Standort (summe = 1.0 über alle Standorte des MA)
+MA_STANDORT_SPLITS = {
+    "Helen.S":  {"Zollikon": 0.5, "Seefeld": 0.5},
+    "Meike.V":  {"Zollikon": 0.5, "Seefeld": 0.5},
+}
+
+def get_standort_splits(ma_name: str, primary_team: str, schedule_entries=None) -> dict:
+    """Standort-Aufteilung: DB-Schedule mit Standorten > MA_STANDORT_SPLITS > Primary-Team."""
+    if schedule_entries:
+        splits = {}
+        for e in schedule_entries:
+            if e.vm_pct and e.vm_standort and e.vm_standort != "Office":
+                splits[e.vm_standort] = splits.get(e.vm_standort, 0) + e.vm_pct
+            if e.nm_pct and e.nm_standort and e.nm_standort != "Office":
+                splits[e.nm_standort] = splits.get(e.nm_standort, 0) + e.nm_pct
+        if splits:
+            total = sum(splits.values())
+            return {k: v / total for k, v in splits.items()}
+    if ma_name in MA_STANDORT_SPLITS:
+        return dict(MA_STANDORT_SPLITS[ma_name])
+    return {primary_team: 1.0}
+
 def pattern_from_schedule(entries) -> dict:
     """Convert MAScheduleEntry rows to a MA_PATTERNS-compatible dict."""
     pat = {k: 0.0 for k in WEEKDAY_KEYS}

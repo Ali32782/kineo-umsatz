@@ -12,7 +12,7 @@ import os, io, json
 from database import get_db, init_db, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, Feiertag, Notification, BilatData
 from calc import (
     compute_zeg, compute_soll_tage, parse_csv_umsatz,
-    zeg_color, MONTH_NAMES_DE, MA_PATTERNS
+    zeg_color, MONTH_NAMES_DE, MA_PATTERNS, get_standort_splits,
 )
 from email_service import email_zeg_alarm, email_csv_reminder
 
@@ -253,32 +253,17 @@ def get_dashboard(
             schedule_map[s.ma_name] = []
         schedule_map[s.ma_name].append(s)
 
-    def get_standort_splits(ma_name, primary_team):
-        """Returns dict of {standort: pct} based on schedule, excluding Office"""
-        entries = schedule_map.get(ma_name, [])
-        if not entries:
-            return {primary_team: 1.0}
-        splits = {}
-        for e in entries:
-            if e.vm_pct and e.vm_standort and e.vm_standort != "Office":
-                splits[e.vm_standort] = splits.get(e.vm_standort, 0) + e.vm_pct
-            if e.nm_pct and e.nm_standort and e.nm_standort != "Office":
-                splits[e.nm_standort] = splits.get(e.nm_standort, 0) + e.nm_pct
-        if not splits:
-            return {primary_team: 1.0}
-        total = sum(splits.values())
-        return {k: v/total for k, v in splits.items()}
-
     # Build multi-standort ma_data entries
     ma_data_expanded = []
     for r in results:
-        splits = get_standort_splits(r["name"], r["team"])
+        splits = get_standort_splits(r["name"], r["team"], schedule_map.get(r["name"]))
+        ma_bg = next((m.bg_pct for m in mas if m.name == r["name"]), r.get("bg_pct", 1.0))
         for standort, pct in splits.items():
             ma_data_expanded.append({
                 **r,
                 "team": standort,
                 "umsatz": r["umsatz"] * pct,
-                "bg_pct": r.get("bg_pct", 1.0) * pct,
+                "bg_pct": ma_bg * pct,
                 "standort_pct": round(pct * 100),
                 "primary_team": r["team"],
             })

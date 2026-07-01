@@ -163,10 +163,46 @@ def migrate_schema():
                 WHERE period_label IS NULL AND half IS NOT NULL
             """))
 
+def seed_multi_standort_schedules():
+    """Seed Arbeitstag-Muster für MA mit mehreren Standorten (falls noch nicht erfasst)."""
+    from calc import MA_STANDORT_SPLITS
+    db = SessionLocal()
+    # (weekday, vm_pct, vm_standort, nm_pct, nm_standort) — abwechselnd Zollikon/Seefeld
+    day_patterns = {
+        "Helen.S": [
+            (1, 0.20, "Zollikon", 0.20, "Zollikon"),
+            (2, 0.20, "Seefeld", 0.20, "Seefeld"),
+            (3, 0.20, "Zollikon", 0.20, "Zollikon"),
+            (4, 0.20, "Seefeld", 0.20, "Seefeld"),
+        ],
+        "Meike.V": [
+            (0, 0.20, "Zollikon", 0.20, "Zollikon"),
+            (1, 0.20, "Seefeld", 0.20, "Seefeld"),
+            (2, 0.20, "Zollikon", 0.20, "Zollikon"),
+            (3, 0.20, "Seefeld", 0.20, "Seefeld"),
+        ],
+    }
+    for ma_name in MA_STANDORT_SPLITS:
+        entries = db.query(MAScheduleEntry).filter_by(ma_name=ma_name).all()
+        if any(e.vm_standort or e.nm_standort for e in entries):
+            continue
+        db.query(MAScheduleEntry).filter_by(ma_name=ma_name).delete()
+        for wd, vm, vs, nm, ns in day_patterns.get(ma_name, []):
+            db.add(MAScheduleEntry(
+                ma_name=ma_name, weekday=wd,
+                vm_pct=vm, vm_standort=vs, nm_pct=nm, nm_standort=ns,
+            ))
+    meike = db.query(MAStammdaten).filter_by(name="Meike.V").first()
+    if meike and meike.team == "Thalwil":
+        meike.team = "Seefeld"
+    db.commit()
+    db.close()
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     migrate_schema()
     seed_initial_data()
+    seed_multi_standort_schedules()
 
 def seed_initial_data():
     """Seed users and MA Stammdaten on first run"""
@@ -207,7 +243,7 @@ def seed_initial_data():
             MAStammdaten(name="Joëlle.R", display_name="Joëlle R.", team="Stauffacher", role="therapeut", bg_pct=0.9, eintritt="2026-01-01"),
             MAStammdaten(name="Lucrecia.G", display_name="Lucrecia G.", team="Wipkingen", role="therapeut", bg_pct=0.8, eintritt="2026-06-01"),
             MAStammdaten(name="Martino.C", display_name="Martino C.", team="Management", role="bd", bg_pct=1.0, eintritt="2026-01-01"),
-            MAStammdaten(name="Meike.V", display_name="Meike V.", team="Thalwil", role="therapeut", bg_pct=0.8, eintritt="2026-01-01"),
+            MAStammdaten(name="Meike.V", display_name="Meike V.", team="Seefeld", role="therapeut", bg_pct=0.8, eintritt="2026-01-01"),
             MAStammdaten(name="Noah.S", display_name="Noah S.", team="Seefeld", role="therapeut", bg_pct=0.6, eintritt="2026-01-01"),
             MAStammdaten(name="Pablo.G", display_name="Pablo G.", team="Seefeld", role="therapeut", bg_pct=0.8, eintritt="2026-06-01"),
             MAStammdaten(name="Pablo.M", display_name="Pablo M.", team="Stauffacher", role="therapeut", bg_pct=0.8, eintritt="2026-06-01"),

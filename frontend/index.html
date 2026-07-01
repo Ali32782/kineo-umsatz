@@ -4,76 +4,91 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Kineo Analytics</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Barlow+Condensed:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="/favicon.png" />
   <style>
+    @font-face {
+      font-family: 'Roboto Condensed';
+      src: url('/fonts/RobotoCondensed-Regular.ttf') format('truetype');
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Roboto Condensed';
+      src: url('/fonts/RobotoCondensed-Bold.ttf') format('truetype');
+      font-weight: 700;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Roboto';
+      src: url('/fonts/Roboto-Regular.ttf') format('truetype');
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Roboto';
+      src: url('/fonts/Roboto-SemiBold.ttf') format('truetype');
+      font-weight: 600;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    /* Farben & Typo von kineo-physiotherapie.ch */
+    :root {
+      --kineo-dark: #0a2734;
+      --kineo-primary: #004869;
+      --kineo-accent: #fa4616;
+      --kineo-bg: #f9f7ed;
+      --kineo-neutral: #e0ded1;
+      --kineo-text: #0a2734;
+      --font-display: 'Roboto Condensed', sans-serif;
+      --font-body: 'Roboto', sans-serif;
+      --radius: 10px;
+    }
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body, #root { height: 100%; }
 
     body {
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
-      background: #F2F5F7;
-      color: #1A2B3C;
+      font-family: var(--font-body);
+      background: var(--kineo-bg);
+      color: var(--kineo-text);
       -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
       font-size: 14px;
       line-height: 1.5;
-      font-weight: 400;
     }
 
-    /* Kineo Typografie-System */
-    /* Headlines: Barlow Condensed = Akzidenz Grotesk Pro Bold Condensed Ersatz */
     h1, h2, h3, h4 {
-      font-family: 'Barlow Condensed', system-ui, sans-serif !important;
+      font-family: var(--font-display) !important;
       font-weight: 700;
       letter-spacing: 0.02em;
-      color: #0F3A50;
+      color: var(--kineo-dark);
       line-height: 1.2;
-    }
-    h1 { font-size: 28px; }
-    h2 { font-size: 22px; }
-    h3 { font-size: 17px; }
-    h4 { font-size: 15px; }
-
-    /* Tabellen */
-    table { border-collapse: collapse; width: 100%; }
-    th { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; letter-spacing: 0.05em; }
-
-    /* Nav Labels */
-    nav, [role="navigation"] { font-family: 'Inter', sans-serif; }
-
-    /* Kineo scrollbar */
-    ::-webkit-scrollbar { width: 5px; height: 5px; }
-    ::-webkit-scrollbar-track { background: #F2F5F7; }
-    ::-webkit-scrollbar-thumb { background: #B0C4CF; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #1C5B7A; }
-
-    /* Focus */
-    input:focus, select:focus, textarea:focus {
-      outline: 2px solid #1C5B7A;
-      outline-offset: 1px;
-    }
-    button:focus-visible { outline: 2px solid #1C5B7A; outline-offset: 2px; }
-
-    /* Inputs */
-    input, select, textarea, button {
-      font-family: 'Inter', system-ui, sans-serif;
-      font-size: 13px;
-    }
-    input[type=number]::-webkit-inner-spin-button { opacity: 0.3; }
-    input[type=range] { accent-color: #1C5B7A; }
-
-    /* Selection */
-    ::selection { background: #1C5B7A28; color: #0F3A50; }
-
-    /* Kineo Badge/Tag style */
-    .kineo-badge {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-weight: 700;
-      letter-spacing: 0.05em;
       text-transform: uppercase;
     }
+
+    table { border-collapse: collapse; width: 100%; }
+    th { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.04em; }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: var(--kineo-bg); }
+    ::-webkit-scrollbar-thumb { background: var(--kineo-neutral); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--kineo-primary); }
+
+    input:focus, select:focus, textarea:focus {
+      outline: 2px solid var(--kineo-primary);
+      outline-offset: 1px;
+    }
+    button:focus-visible { outline: 2px solid var(--kineo-primary); outline-offset: 2px; }
+
+    input, select, textarea, button {
+      font-family: var(--font-body);
+      font-size: 13px;
+    }
+    input[type=range] { accent-color: var(--kineo-primary); }
+    ::selection { background: #00486928; color: var(--kineo-dark); }
   </style>
 </head>
 <body>
