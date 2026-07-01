@@ -698,13 +698,14 @@ def get_schedule(ma_name: str, db: Session = Depends(get_db), current_user: User
     entries = db.query(MAScheduleEntry).filter_by(ma_name=ma_name).order_by(MAScheduleEntry.weekday).all()
     if not entries:
         # Return defaults from calc.py
-        from calc import MA_PATTERNS
+        from calc import MA_PATTERNS, HALBTAG_PCT
         pat = MA_PATTERNS.get(ma_name, {})
         days=[]
         for wd in range(5):
             day_map={0:"mo",1:"di",2:"mi",3:"do",4:"fr"}
-            pct=pat.get(day_map[wd],0)
-            days.append({"weekday":wd,"vm_pct":pct,"vm_standort":None,"nm_pct":pct,"nm_standort":None})
+            day_pct=pat.get(day_map[wd],0)
+            half = round(day_pct / 2, 2) if day_pct else 0
+            days.append({"weekday":wd,"vm_pct":half,"vm_standort":None,"nm_pct":half,"nm_standort":None})
         return days
     return [{"weekday":e.weekday,"vm_pct":e.vm_pct,"vm_standort":e.vm_standort,
              "nm_pct":e.nm_pct,"nm_standort":e.nm_standort} for e in entries]

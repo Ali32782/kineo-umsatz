@@ -167,19 +167,19 @@ def seed_multi_standort_schedules():
     """Seed Arbeitstag-Muster für MA mit mehreren Standorten (falls noch nicht erfasst)."""
     from calc import MA_STANDORT_SPLITS
     db = SessionLocal()
-    # (weekday, vm_pct, vm_standort, nm_pct, nm_standort) — abwechselnd Zollikon/Seefeld
+    # Halbtag = 10 % der Woche (0.10); ganzer Tag VM+NM = 20 % (0.20)
     day_patterns = {
         "Helen.S": [
-            (1, 0.20, "Zollikon", 0.20, "Zollikon"),
-            (2, 0.20, "Seefeld", 0.20, "Seefeld"),
-            (3, 0.20, "Zollikon", 0.20, "Zollikon"),
-            (4, 0.20, "Seefeld", 0.20, "Seefeld"),
+            (1, 0.10, "Zollikon", 0.10, "Zollikon"),
+            (2, 0.10, "Seefeld", 0.10, "Seefeld"),
+            (3, 0.10, "Zollikon", 0.10, "Zollikon"),
+            (4, 0.10, "Seefeld", 0.10, "Seefeld"),
         ],
         "Meike.V": [
-            (0, 0.20, "Zollikon", 0.20, "Zollikon"),
-            (1, 0.20, "Seefeld", 0.20, "Seefeld"),
-            (2, 0.20, "Zollikon", 0.20, "Zollikon"),
-            (3, 0.20, "Seefeld", 0.20, "Seefeld"),
+            (0, 0.10, "Zollikon", 0.10, "Zollikon"),
+            (1, 0.10, "Seefeld", 0.10, "Seefeld"),
+            (2, 0.10, "Zollikon", 0.10, "Zollikon"),
+            (3, 0.10, "Seefeld", 0.10, "Seefeld"),
         ],
     }
     for ma_name in MA_STANDORT_SPLITS:
@@ -198,9 +198,25 @@ def seed_multi_standort_schedules():
     db.commit()
     db.close()
 
+def migrate_schedule_halbtag_units():
+    """Alte Einträge hatten 0.20 pro Halbtag — korrekt ist 0.10 (= 10 % der Woche)."""
+    db = SessionLocal()
+    changed = False
+    for e in db.query(MAScheduleEntry).all():
+        if (e.vm_pct or 0) >= 0.15:
+            e.vm_pct = round((e.vm_pct or 0) / 2, 2)
+            changed = True
+        if (e.nm_pct or 0) >= 0.15:
+            e.nm_pct = round((e.nm_pct or 0) / 2, 2)
+            changed = True
+    if changed:
+        db.commit()
+    db.close()
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     migrate_schema()
+    migrate_schedule_halbtag_units()
     seed_initial_data()
     seed_multi_standort_schedules()
 

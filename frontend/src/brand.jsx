@@ -57,10 +57,10 @@ export function ScheduleHelp() {
       <div>
         <strong>Was bedeuten die Prozent-Werte?</strong>
         <p style={{ margin: "6px 0 0" }}>
-          Die Woche hat <strong>10 Halbtage</strong> (Mo–Fr, je Vormittag + Nachmittag).
-          <strong> 20&nbsp;% = ein Halbtag gearbeitet</strong> (max. pro Vormittag/Nachmittag).
-          Vormittag + Nachmittag am <strong>gleichen Standort</strong> = ein ganzer Arbeitstag (40&nbsp;%).
-          Beispiel Barbara: 20&nbsp;% + 20&nbsp;% Mo–Do in Wipkingen = <strong>4 ganze Tage = 80&nbsp;% Pensum</strong>.
+          Die Woche hat <strong>10 Halbtage</strong> (Mo–Fr, je Vormittag + Nachmittag) = 100&nbsp;%.
+          <strong> 10&nbsp;% = ein Halbtag</strong> (Vormittag <em>oder</em> Nachmittag).
+          <strong> 10&nbsp;% + 10&nbsp;%</strong> am gleichen Standort = <strong>ein ganzer Tag (20&nbsp;%)</strong>.
+          Beispiel Barbara: 10&nbsp;% + 10&nbsp;% Mo–Do in Wipkingen = 4 Tage × 20&nbsp;% = <strong>80&nbsp;% Pensum</strong>.
         </p>
       </div>
     </div>

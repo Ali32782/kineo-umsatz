@@ -66,8 +66,8 @@ def test_compute_zeg_no_umsatz():
 
 def test_pattern_from_schedule():
     pat = pattern_from_schedule([
-        _ScheduleEntry(0, 0.20, 0.20),
-        _ScheduleEntry(1, 0.20, 0.20),
+        _ScheduleEntry(0, 0.10, 0.10),
+        _ScheduleEntry(1, 0.10, 0.10),
     ])
     assert pat["mo"] == 0.20
     assert pat["di"] == 0.20
@@ -109,8 +109,8 @@ def test_schedule_overrides_hardcoded_pattern():
             ))
         db.commit()
         pat = get_pattern("Test.MA", 5, db=db)
-        assert pat["mo"] == 0.10
-        assert pat["fr"] == 0.10
+        assert pat["mo"] == 0.20
+        assert pat["fr"] == 0.20
     finally:
         db.query(MAScheduleEntry).filter_by(ma_name="Test.MA").delete()
         db.commit()
@@ -131,7 +131,7 @@ def test_get_standort_splits_schedule_overrides():
             self.vm_standort = vm_standort
             self.nm_pct = nm_pct
             self.nm_standort = nm_standort
-    entries = [E(0.20, "Wipkingen", 0.20, "Wipkingen")]
+    entries = [E(0.10, "Wipkingen", 0.10, "Wipkingen")]
     splits = get_standort_splits("Helen.S", "Zollikon", entries)
     assert splits == {"Wipkingen": 1.0}
 

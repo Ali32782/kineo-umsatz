@@ -48,6 +48,9 @@ MA_EINTRITTE = {
     "Sonia.M": date(2026,1,1),
 }
 
+HALBTAG_PCT = 0.10   # 10 % der Woche = ein Halbtag (VM oder NM)
+TAG_PCT = 0.20       # 20 % der Woche = ganzer Tag (VM + NM)
+
 MA_OVERRIDES = {
     "Sonia.M": {1: {"mo":0.20,"di":0.20,"mi":0.20,"do":0.20,"fr":0.00}},
 }
@@ -81,7 +84,8 @@ def pattern_from_schedule(entries) -> dict:
     pat["leit"] = 0
     for e in entries:
         key = WEEKDAY_KEYS[e.weekday]
-        pat[key] = max(pat[key], e.vm_pct or 0, e.nm_pct or 0)
+        day_pct = (e.vm_pct or 0) + (e.nm_pct or 0)
+        pat[key] = max(pat[key], day_pct)
     return pat
 
 def get_feiertage_sets(year: int, db=None) -> tuple[set, set]:
@@ -153,9 +157,9 @@ def compute_soll_tage(name: str, year: int, m_num: int, db=None) -> float:
             if d in feiertage_full:
                 continue
             elif d in feiertage_half:
-                total += pct / 0.20 * 0.5
+                total += pct / TAG_PCT * 0.5
             else:
-                total += pct / 0.20
+                total += pct / TAG_PCT
     return round(total, 2)
 
 

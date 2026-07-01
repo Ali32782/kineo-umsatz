@@ -1009,7 +1009,7 @@ function AdminPage() {
                         <td style={{padding:"10px 14px",fontWeight:700}}>{day}</td>
                         <td style={{padding:"6px 8px",textAlign:"center"}}>
                           <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
-                            <input type="number" min="0" max="20" step="5"
+                            <input type="number" min="0" max="10" step="5"
                               value={Math.round((entry.vm_pct||0)*100)}
                               onChange={e=>update("vm_pct", +e.target.value / 100)}
                               style={{...inp(),width:56,textAlign:"center"}} />
@@ -1025,7 +1025,7 @@ function AdminPage() {
                         </td>
                         <td style={{padding:"6px 8px",textAlign:"center"}}>
                           <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
-                            <input type="number" min="0" max="20" step="5"
+                            <input type="number" min="0" max="10" step="5"
                               value={Math.round((entry.nm_pct||0)*100)}
                               onChange={e=>update("nm_pct", +e.target.value / 100)}
                               style={{...inp(),width:56,textAlign:"center"}} />
