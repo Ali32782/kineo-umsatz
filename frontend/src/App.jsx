@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from "react"
+import { useState, useEffect, createContext, useContext, useMemo, useRef } from "react"
 import { API, CURRENT_YEAR, DEFAULT_YEAR, DEFAULT_MONTH, periodForMonth } from "./config.js"
 import { CD, KineoLogo, NavIcon, ScheduleHelp, Bell, LogOut, Calendar, Users } from "./brand.jsx"
 
@@ -28,13 +28,42 @@ function useAvailableYears() {
 }
 
 function YearSelect({ value, onChange, years, style }) {
-  const opts = years?.length ? years : [value]
+  const opts = useMemo(() => {
+    const list = years?.length ? [...years] : []
+    if (value != null && !list.includes(value)) list.push(value)
+    return list.sort((a, b) => b - a)
+  }, [years, value])
+  const safeValue = opts.includes(value) ? value : opts[0]
   return (
-    <select value={value} onChange={e => onChange(+e.target.value)}
+    <select value={safeValue} onChange={e => onChange(+e.target.value)}
       style={style || { padding: "8px 12px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 14 }}>
       {opts.map(y => <option key={y} value={y}>{y}</option>)}
     </select>
   )
+}
+
+function useYtd(year, reloadKey = 0) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError(null)
+    setData(null)
+    api(`/api/ytd/${year}`)
+      .then(d => {
+        if (!active) return
+        if (d?.year !== year) return
+        setData(d)
+      })
+      .catch(e => { if (active) setError(e.message || "Daten konnten nicht geladen werden") })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [year, reloadKey])
+
+  return { data, loading, error }
 }
 
 // ── Colors & ZEG ──────────────────────────────────────────────────────────
@@ -382,16 +411,22 @@ function UploadPage() {
   const [step, setStep] = useState(1)
   const [csvFile, setCsvFile] = useState(null)
   const [csvPreview, setCsvPreview] = useState(null)
+  const [abFile, setAbFile] = useState(null)
+  const [abPreview, setAbPreview] = useState(null)
+  const [importedMAs, setImportedMAs] = useState(() => new Set())
   const [maList, setMaList] = useState([])
   const [inputs, setInputs] = useState({})
+  const inputsFetchRef = useRef(0)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState(null)
   const months = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"]
 
   useEffect(() => { api("/api/ma").then(setMaList).catch(console.error) }, [])
   useEffect(() => {
+    const fetchId = ++inputsFetchRef.current
+    setImportedMAs(new Set())
     api(`/api/inputs/${year}/${month}`).then(data => {
-      setInputs(data)
+      if (fetchId === inputsFetchRef.current) setInputs(data)
     }).catch(console.error)
   }, [year, month])
 
@@ -409,6 +444,43 @@ function UploadPage() {
     const data = await res.json()
     if (res.ok) { setCsvPreview(data.data); setMsg({ type: "ok", text: data.message }); setStep(2) }
     else { setMsg({ type: "err", text: data.detail }) }
+    setSaving(false)
+  }
+
+  const uploadAbwesenheiten = async () => {
+    if (!abFile) return
+    setSaving(true); setMsg(null)
+    const fd = new FormData()
+    fd.append("file", abFile)
+    fd.append("year", year)
+    fd.append("month", month)
+    const token = localStorage.getItem("token")
+    const res = await fetch(`${API}/api/upload-abwesenheiten`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd
+    })
+    const data = await res.json()
+    if (res.ok) {
+      setAbPreview(data)
+      const imported = new Set(Object.keys(data.inputs || data.data || {}))
+      setImportedMAs(imported)
+      setInputs(prev => {
+        const next = { ...prev }
+        for (const [maName, vals] of Object.entries(data.inputs || data.data || {})) {
+          next[maName] = { ...(next[maName] || {}), ...vals }
+        }
+        return next
+      })
+      setStep(2)
+      const warn = data.unmatched?.length
+        ? ` Nicht zugeordnet: ${data.unmatched.join(", ")}`
+        : ""
+      setMsg({
+        type: data.unmatched?.length ? "warn" : "ok",
+        text: (data.message || "Importiert") + warn + " — Felder unten sind vorausgefüllt.",
+      })
+    } else {
+      setMsg({ type: "err", text: data.detail || "Import fehlgeschlagen" })
+    }
     setSaving(false)
   }
 
@@ -431,16 +503,22 @@ function UploadPage() {
     setSaving(false)
   }
 
-  const inputField = (maName, field, label, step = "0.5") => {
-    const val = inputs[maName]?.[field] || ""
+  const inputField = (maName, field, label, stepVal = "0.5", highlight = false) => {
+    const raw = inputs[maName]?.[field]
+    const val = raw === undefined || raw === null || raw === "" ? "" : raw
     return (
       <input
-        type="number" min="0" step={step} value={val}
+        type="number" min="0" step={stepVal} value={val}
         onChange={e => setInputs(prev => ({
           ...prev,
           [maName]: { ...(prev[maName] || {}), [field]: e.target.value }
         }))}
-        style={{ width: "100%", padding: "5px 8px", border: "1px solid #DDD", borderRadius: 6, fontSize: 12, textAlign: "center" }}
+        style={{
+          width: "100%", padding: "5px 8px",
+          border: highlight ? "1.5px solid #1a7a1a" : "1px solid #DDD",
+          borderRadius: 6, fontSize: 12, textAlign: "center",
+          background: highlight ? "#E8F8E8" : "white",
+        }}
         placeholder="0"
       />
     )
@@ -449,7 +527,7 @@ function UploadPage() {
   return (
     <div>
       <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Roboto Condensed', sans-serif", letterSpacing: "0.03em" }}>Daten eingeben</h1>
-      <div style={{ color: "#888", marginBottom: 28, fontSize: 13 }}>CSV hochladen + Tätigkeiten erfassen</div>
+      <div style={{ color: "#888", marginBottom: 28, fontSize: 13 }}>CSV-Umsatz + Abwesenheiten-Excel + Tätigkeiten erfassen</div>
 
       {/* Month/Year selector */}
       <div style={{ background: "white", borderRadius: 8, padding: "20px 24px", marginBottom: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", gap: 16, alignItems: "center" }}>
@@ -514,6 +592,33 @@ function UploadPage() {
       {/* Step 2: Tätigkeiten */}
       {step === 2 && (
         <div style={{ background: "white", borderRadius: 8, padding: "24px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+          <div style={{ background: "#F8F9FA", border: "1px solid #E8E8E8", borderRadius: 8, padding: "16px 20px", marginBottom: 20 }}>
+            <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", color: "#004869", fontSize: 15 }}>Abwesenheiten-Excel importieren</h4>
+            <p style={{ margin: "0 0 12px", fontSize: 12, color: "#666", lineHeight: 1.5 }}>
+              HR-Export mit Spalten <em>Mitarbeitende, Abwesenheitsart, Von, Bis, Halber Tag</em>.
+              Urlaub, Gleitzeit und Umzug → Ferien (T); Krankheit → Krank (T). Felder in der Tabelle werden danach automatisch vorausgefüllt (grün markiert).
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+              <input type="file" accept=".xlsx,.xlsm" onChange={e => { setAbFile(e.target.files[0]); setAbPreview(null) }} style={{ fontSize: 12 }} />
+              {abFile && (
+                <button onClick={uploadAbwesenheiten} disabled={saving} style={{ background: "#004869", color: "white", border: "none", padding: "8px 18px", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
+                  {saving ? "Importiere…" : "Ferien & Krank importieren"}
+                </button>
+              )}
+            </div>
+            {abPreview?.details?.length > 0 && (
+              <div style={{ marginTop: 14, maxHeight: 160, overflowY: "auto", fontSize: 11, color: "#555" }}>
+                {abPreview.details.slice(0, 12).map((d, i) => (
+                  <div key={i} style={{ padding: "3px 0", borderBottom: "1px solid #EEE" }}>
+                    <strong>{d.excel_name}</strong> → {d.ma_name}: {d.art}, {d.days} T ({d.von} – {d.bis})
+                  </div>
+                ))}
+                {abPreview.details.length > 12 && (
+                  <div style={{ paddingTop: 6, color: "#888" }}>… und {abPreview.details.length - 12} weitere Einträge</div>
+                )}
+              </div>
+            )}
+          </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: 0, color: "#004869" }}>Tätigkeiten — {months[month-1]} {year}</h3>
             <button onClick={saveInputs} disabled={saving} style={{ background: "#004869", color: "white", border: "none", padding: "10px 24px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 14 }}>
@@ -530,18 +635,20 @@ function UploadPage() {
                 </tr>
               </thead>
               <tbody>
-                {maList.map((ma, i) => (
+                {maList.map((ma, i) => {
+                  const imported = importedMAs.has(ma.name)
+                  return (
                   <tr key={ma.name} style={{ background: i%2===0?"white":"#F8F9FA" }}>
                     <td style={{ padding: "8px 12px", fontWeight: 600, whiteSpace: "nowrap" }}>{ma.display_name}</td>
                     <td style={{ padding: "8px 12px", color: "#888", fontSize: 11 }}>{ma.team}</td>
-                    <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"ferien_t","")}</td>
+                    <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"ferien_t","", "0.5", imported)}</td>
                     <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"kurs_h","")}</td>
                     <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"workshop_h","")}</td>
                     <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"marketing_h","")}</td>
                     <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"laufanalyse_h","")}</td>
-                    <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"krank_t","")}</td>
+                    <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"krank_t","", "0.5", imported)}</td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           </div>
@@ -555,16 +662,22 @@ function UploadPage() {
 function OverviewPage() {
   const years = useAvailableYears()
   const [year, setYear] = useState(DEFAULT_YEAR)
-  const [data, setData] = useState(null)
+  const [reloadKey, setReloadKey] = useState(0)
+  const { data, loading, error } = useYtd(year, reloadKey)
   const [filterTeam, setFilterTeam] = useState("Alle")
   const [filterRole, setFilterRole] = useState("Alle")
   const [sortKey, setSortKey] = useState("name")
   const [sortDir, setSortDir] = useState("asc")
   const months = ["Jan","Feb","Mrz","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"]
 
-  useEffect(() => { api(`/api/ytd/${year}`).then(setData).catch(console.error) }, [year])
-
-  if (!data) return <div style={{ textAlign: "center", padding: 60, color: "#888" }}>Lade…</div>
+  if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#888" }}>Lade Jahresübersicht {year}…</div>
+  if (error) return (
+    <div style={{ textAlign: "center", padding: 60 }}>
+      <div style={{ color: "#c0392b", marginBottom: 12 }}>{error}</div>
+      <button onClick={() => setReloadKey(k => k + 1)} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #DDD", cursor: "pointer" }}>Erneut laden</button>
+    </div>
+  )
+  if (!data || data.year !== year) return <div style={{ textAlign: "center", padding: 60, color: "#888" }}>Lade Jahresübersicht {year}…</div>
 
   const allMA = data.ma_data || []
   const teams = ["Alle", ...Array.from(new Set(allMA.map(m => m.team))).sort()]
@@ -599,12 +712,16 @@ function OverviewPage() {
   const filtered = filterTeam !== "Alle" || filterRole !== "Alle"
   const displayMonthlyTotals = filtered
     ? Array.from({ length: 12 }, (_, mi) =>
-        rows.reduce((s, ma) => s + ((ma.monthly || [])[mi]?.umsatz || 0), 0)
+        rows.reduce((s, ma) => {
+          const cell = (ma.monthly || [])[mi]
+          if (!cell) return s
+          return s + (cell.umsatz || 0)
+        }, 0)
       )
     : (data.monthly_totals || [])
   const displayYearTotal = filtered
     ? rows.reduce((s, ma) => s + (ma.total_umsatz || 0), 0)
-    : (data.year_total_umsatz || 0)
+    : (data.year_total_umsatz ?? (data.monthly_totals || []).reduce((a, b) => a + b, 0))
 
   const selectStyle = { padding: "6px 10px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12, background: "white", color: "#333" }
 
@@ -1496,10 +1613,19 @@ function LohnrechnerPage() {
   const [maList, setMaList] = useState([])
   const [selectedMA, setSelectedMA] = useState(null)
   const [ytdData, setYtdData] = useState(null)
+  const [ytdLoading, setYtdLoading] = useState(true)
+
+  useEffect(() => { api("/api/ma").then(setMaList).catch(console.error) }, [])
 
   useEffect(() => {
-    api("/api/ma").then(setMaList).catch(console.error)
-    api(`/api/ytd/${dataYear}`).then(setYtdData).catch(console.error)
+    let active = true
+    setYtdLoading(true)
+    setYtdData(null)
+    api(`/api/ytd/${dataYear}`)
+      .then(d => { if (active && d?.year === dataYear) setYtdData(d) })
+      .catch(console.error)
+      .finally(() => { if (active) setYtdLoading(false) })
+    return () => { active = false }
   }, [dataYear])
 
   const p = params

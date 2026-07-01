@@ -142,6 +142,79 @@ async def upload_csv(
         "data": umsatz_map
     }
 
+# ── Abwesenheiten Excel Upload ────────────────────────────────────────────
+@app.post("/api/upload-abwesenheiten")
+async def upload_abwesenheiten(
+    file: UploadFile = File(...),
+    year: int = Form(...),
+    month: int = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role not in ("ceo", "bd"):
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status_code=400, detail="Bitte eine Excel-Datei (.xlsx) hochladen")
+
+    content = await file.read()
+    mas = db.query(MAStammdaten).all()
+    from abwesenheiten_import import parse_abwesenheiten_xlsx
+
+    try:
+        result = parse_abwesenheiten_xlsx(content, year, month, mas)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Excel konnte nicht gelesen werden: {e}")
+
+    if not result["by_ma"] and not result["unmatched"]:
+        raise HTTPException(status_code=400, detail="Keine Abwesenheiten im gewählten Monat gefunden")
+
+    now = datetime.utcnow()
+    inputs_saved = {}
+    for ma_name, vals in result["by_ma"].items():
+        existing = db.query(MonthlyInput).filter(
+            MonthlyInput.ma_name == ma_name,
+            MonthlyInput.year == year,
+            MonthlyInput.month == month,
+        ).first()
+        if existing:
+            existing.ferien_t = vals["ferien_t"]
+            existing.krank_t = vals["krank_t"]
+            existing.updated_at = now
+            existing.updated_by = current_user.username
+            row = existing
+        else:
+            row = MonthlyInput(
+                ma_name=ma_name, year=year, month=month,
+                ferien_t=vals["ferien_t"], krank_t=vals["krank_t"],
+                updated_at=now, updated_by=current_user.username,
+            )
+            db.add(row)
+        inputs_saved[ma_name] = {
+            "ferien_t": vals["ferien_t"],
+            "krank_t": vals["krank_t"],
+            "kurs_h": row.kurs_h or 0,
+            "workshop_h": row.workshop_h or 0,
+            "marketing_h": row.marketing_h or 0,
+            "laufanalyse_h": row.laufanalyse_h or 0,
+            "notes": row.notes,
+        }
+    db.commit()
+
+    matched = len(result["by_ma"])
+    msg = f"{matched} Mitarbeiter/innen — Ferien & Krank vorausgefüllt für {MONTH_NAMES_DE[month]} {year}"
+    if result["unmatched"]:
+        msg += f" — {len(result['unmatched'])} nicht zugeordnet"
+
+    return {
+        "message": msg,
+        "data": result["by_ma"],
+        "inputs": inputs_saved,
+        "details": result["details"],
+        "unmatched": result["unmatched"],
+        "skipped": result["skipped"],
+    }
+
 # ── Monthly Inputs ────────────────────────────────────────────────────────
 class MonthlyInputData(BaseModel):
     ma_name: str
@@ -309,7 +382,7 @@ def get_ytd(
     for r in inputs_all:
         input_map[(r.ma_name, r.month)] = r
 
-    from umsatz_agg import ma_year_umsatz, monthly_and_year_totals
+    from umsatz_agg import monthly_and_year_totals
     monthly_totals, year_total_umsatz = monthly_and_year_totals(umsatz_map, mas, year)
 
     results = []
@@ -317,6 +390,7 @@ def get_ytd(
         name = ma.name
         monthly = []
         zeg_b_values = []
+        total_umsatz = 0
         for m in range(1, 13):
             if not is_employed_in_month(ma.eintritt, ma.austritt, year, m, ma.is_active):
                 monthly.append(None)
@@ -327,6 +401,7 @@ def get_ytd(
             if umsatz == 0 and soll == 0 and not inp:
                 monthly.append(None)
                 continue
+            total_umsatz += umsatz
             zeg = compute_zeg(
                 name, year, m, umsatz,
                 ferien_t=inp.ferien_t if inp else 0,
@@ -355,8 +430,10 @@ def get_ytd(
             "monthly": monthly,
             "avg_zeg_b": avg_zeg_b,
             "color": zeg_color(avg_zeg_b),
-            "total_umsatz": round(ma_year_umsatz(umsatz_map, ma, year)),
+            "total_umsatz": round(total_umsatz),
         })
+
+    year_total_umsatz = sum(monthly_totals)
 
     return {
         "year": year,

@@ -27,15 +27,15 @@ export const NAV_ICONS = {
   admin: Settings,
 }
 
-/** Offizielles Logo von kineo-physiotherapie.ch */
+import BaseKineoLogo from "./KineoLogo.jsx"
+
+/** Offizielles Logo — weiss auf dunklem Hintergrund, petrol auf hellem */
 export function KineoLogo({ variant = "white", height = 36 }) {
-  const src = variant === "white" ? "/kineo-logo.png" : "/kineo-logo-dark.png"
   return (
-    <img
-      src={src}
-      alt="Kineo Physiotherapie"
-      height={height}
-      style={{ display: "block", maxWidth: "100%", objectFit: "contain" }}
+    <BaseKineoLogo
+      variant={variant === "white" ? "white" : "petrol"}
+      width={Math.round(height * (479 / 333))}
+      style={{ height, width: "auto", maxWidth: "100%", objectFit: "contain", display: "block" }}
     />
   )
 }
