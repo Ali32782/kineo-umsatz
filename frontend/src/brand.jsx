@@ -31,12 +31,23 @@ import BaseKineoLogo from "./KineoLogo.jsx"
 
 /** Offizielles Logo — weiss auf dunklem Hintergrund, petrol auf hellem */
 export function KineoLogo({ variant = "white", height = 36 }) {
+  const isWhite = variant === "white"
   return (
-    <BaseKineoLogo
-      variant={variant === "white" ? "white" : "petrol"}
-      width={Math.round(height * (479 / 333))}
-      style={{ height, width: "auto", maxWidth: "100%", objectFit: "contain", display: "block" }}
-    />
+    <div style={isWhite ? { background: CD.darkBlue, lineHeight: 0, borderRadius: 4 } : { lineHeight: 0 }}>
+      <BaseKineoLogo
+        variant={isWhite ? "white" : "petrol"}
+        width={Math.round(height * (479 / 333))}
+        style={{
+          height,
+          width: "auto",
+          maxWidth: "100%",
+          objectFit: "contain",
+          display: "block",
+          // PNG hat schwarzen Hintergrund — mit Sidebar-Blau verschmelzen
+          ...(isWhite ? { mixBlendMode: "screen" } : {}),
+        }}
+      />
+    </div>
   )
 }
 
