@@ -33,7 +33,7 @@ import BaseKineoLogo from "./KineoLogo.jsx"
 export function KineoLogo({ variant = "white", height = 36 }) {
   const isWhite = variant === "white"
   return (
-    <div style={isWhite ? { background: CD.darkBlue, lineHeight: 0, borderRadius: 4 } : { lineHeight: 0 }}>
+    <div style={{ background: isWhite ? CD.darkBlue : "transparent", lineHeight: 0 }}>
       <BaseKineoLogo
         variant={isWhite ? "white" : "petrol"}
         width={Math.round(height * (479 / 333))}
@@ -43,8 +43,8 @@ export function KineoLogo({ variant = "white", height = 36 }) {
           maxWidth: "100%",
           objectFit: "contain",
           display: "block",
-          // PNG hat schwarzen Hintergrund — mit Sidebar-Blau verschmelzen
-          ...(isWhite ? { mixBlendMode: "screen" } : {}),
+          // PNG hat schwarzen Rand — lighten lässt Sidebar-Blau durchscheinen
+          mixBlendMode: isWhite ? "lighten" : undefined,
         }}
       />
     </div>
