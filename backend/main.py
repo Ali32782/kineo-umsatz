@@ -120,16 +120,39 @@ async def upload_csv(
         text = content.decode('latin-1')
 
     umsatz_map = parse_csv_umsatz(text)
+    if not umsatz_map:
+        raise HTTPException(
+            status_code=400,
+            detail="CSV enthält keine Umsatzdaten — bestehende Werte wurden nicht gelöscht.",
+        )
 
-    # Delete existing entries for this month
+    mas = db.query(MAStammdaten).all()
+    from abwesenheiten_import import match_ma_name
+
+    resolved: dict[str, float] = {}
+    unmatched: list[str] = []
+    for csv_name, amount in umsatz_map.items():
+        ma = next((m for m in mas if m.name == csv_name), None)
+        ma_name = csv_name if ma else match_ma_name(csv_name, mas)
+        if ma_name:
+            resolved[ma_name] = resolved.get(ma_name, 0) + amount
+        else:
+            unmatched.append(csv_name)
+
+    if not resolved:
+        raise HTTPException(
+            status_code=400,
+            detail="Keine Mitarbeiter in der CSV erkannt — bestehende Werte wurden nicht gelöscht.",
+        )
+
+    # Delete existing entries for this month (nur nach erfolgreicher Validierung)
     db.query(UmsatzData).filter(
         UmsatzData.year == year,
         UmsatzData.month == month
     ).delete()
 
-    # Insert new
     inserted = 0
-    for name, amount in umsatz_map.items():
+    for name, amount in resolved.items():
         db.add(UmsatzData(
             ma_name=name, year=year, month=month,
             umsatz=amount, uploaded_by=current_user.username
@@ -137,9 +160,13 @@ async def upload_csv(
         inserted += 1
 
     db.commit()
+    msg = f"{inserted} MA-Umsätze für {MONTH_NAMES_DE[month]} {year} importiert"
+    if unmatched:
+        msg += f" — {len(unmatched)} nicht zugeordnet"
     return {
-        "message": f"{inserted} MA-Umsätze für {MONTH_NAMES_DE[month]} {year} importiert",
-        "data": umsatz_map
+        "message": msg,
+        "data": resolved,
+        "unmatched": unmatched,
     }
 
 # ── Abwesenheiten Excel Upload ────────────────────────────────────────────

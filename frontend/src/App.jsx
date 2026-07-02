@@ -323,6 +323,8 @@ function DashboardPage() {
   const teams = Object.entries(data.team_summary || {})
     .sort(([,a],[,b]) => (b.zeg_b_avg||0) - (a.zeg_b_avg||0))
 
+  const noUmsatz = !(data.total_umsatz > 0)
+
   return (
     <div>
       {/* Header */}
@@ -339,6 +341,13 @@ function DashboardPage() {
           <YearSelect value={year} onChange={setYear} years={years} />
         </div>
       </div>
+
+      {noUmsatz && (
+        <div style={{ background: "#FFF3CD", border: "1px solid #FFE69C", borderRadius: 8, padding: "14px 18px", marginBottom: 20, fontSize: 13, color: "#856404" }}>
+          <strong>Kein Umsatz für {data.month_name} {year}.</strong> Bitte unter «Daten eingeben» die CSV für diesen Monat hochladen.
+          Abwesenheiten-Excel allein reicht nicht — Umsatz kommt aus dem CSV-Export der Kineo-Software.
+        </div>
+      )}
 
       {/* Summary cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: 28 }}>
