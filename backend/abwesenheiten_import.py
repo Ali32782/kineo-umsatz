@@ -147,17 +147,17 @@ def classify_art(art: str) -> str | None:
     return None
 
 
-def parse_abwesenheiten_xlsx(
+def parse_abwesenheiten_xlsx_for_year(
     content: bytes,
     year: int,
-    month: int,
     mas,
 ) -> dict:
+    """Alle Abwesenheiten eines Jahrs — Tage pro Monat aus Von/Bis-Zeiträumen."""
     wb = load_workbook(io.BytesIO(content), data_only=True)
     ws = wb.active
     lookup = build_ma_lookup(mas)
 
-    by_ma: dict[str, dict[str, float]] = {}
+    by_month: dict[int, dict[str, dict[str, float]]] = {}
     details: list[dict] = []
     unmatched: list[str] = []
     skipped: list[dict] = []
@@ -182,33 +182,61 @@ def parse_abwesenheiten_xlsx(
             unmatched.append(str(excel_name).strip())
             continue
 
-        days = weekdays_in_month(von, bis, year, month)
-        if halber:
-            days *= 0.5
-        if days <= 0:
-            continue
+        row_has_days = False
+        for month in range(1, 13):
+            days = weekdays_in_month(von, bis, year, month)
+            if halber:
+                days *= 0.5
+            if days <= 0:
+                continue
+            row_has_days = True
+            by_month.setdefault(month, {}).setdefault(ma_name, {"ferien_t": 0.0, "krank_t": 0.0})
+            by_month[month][ma_name][field] += days
+            details.append({
+                "ma_name": ma_name,
+                "excel_name": str(excel_name).strip(),
+                "art": str(art_raw).strip(),
+                "von": von.isoformat(),
+                "bis": bis.isoformat(),
+                "month": month,
+                "days": days,
+                "field": field,
+            })
 
-        by_ma.setdefault(ma_name, {"ferien_t": 0.0, "krank_t": 0.0})
-        by_ma[ma_name][field] += days
+        if not row_has_days and von.year <= year <= bis.year:
+            skipped.append({
+                "row": row_idx, "name": str(excel_name), "art": str(art_raw),
+                "reason": "keine Arbeitstage im Jahr",
+            })
 
-        details.append({
-            "ma_name": ma_name,
-            "excel_name": str(excel_name).strip(),
-            "art": str(art_raw).strip(),
-            "von": von.isoformat(),
-            "bis": bis.isoformat(),
-            "days": days,
-            "field": field,
-        })
+    for month_data in by_month.values():
+        for vals in month_data.values():
+            vals["ferien_t"] = round(vals["ferien_t"] * 2) / 2
+            vals["krank_t"] = round(vals["krank_t"] * 2) / 2
 
-    # Runden auf 0.5
-    for ma_name, vals in by_ma.items():
-        vals["ferien_t"] = round(vals["ferien_t"] * 2) / 2
-        vals["krank_t"] = round(vals["krank_t"] * 2) / 2
-
+    months = sorted(by_month.keys())
     return {
-        "by_ma": by_ma,
+        "by_month": by_month,
+        "months": months,
         "details": details,
         "unmatched": sorted(set(unmatched)),
         "skipped": skipped,
+    }
+
+
+def parse_abwesenheiten_xlsx(
+    content: bytes,
+    year: int,
+    month: int,
+    mas,
+) -> dict:
+    """Einzelmonat — Teilmenge von parse_abwesenheiten_xlsx_for_year."""
+    full = parse_abwesenheiten_xlsx_for_year(content, year, mas)
+    by_ma = full["by_month"].get(month, {})
+    details = [d for d in full["details"] if d.get("month") == month]
+    return {
+        "by_ma": by_ma,
+        "details": details,
+        "unmatched": full["unmatched"],
+        "skipped": full["skipped"],
     }

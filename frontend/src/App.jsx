@@ -676,6 +676,7 @@ function UploadPage() {
     fd.append("file", abFile)
     fd.append("year", year)
     fd.append("month", month)
+    fd.append("all_months", "true")
     const token = localStorage.getItem("token")
     const res = await fetch(`${API}/api/upload-abwesenheiten`, {
       method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd
@@ -831,7 +832,8 @@ function UploadPage() {
             <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", color: "#004869", fontSize: 15 }}>Abwesenheiten-Excel importieren</h4>
             <p style={{ margin: "0 0 12px", fontSize: 12, color: "#666", lineHeight: 1.5 }}>
               HR-Export mit Spalten <em>Mitarbeitende, Abwesenheitsart, Von, Bis, Halber Tag</em>.
-              Urlaub, Gleitzeit und Umzug → Ferien (T); Krankheit → Krank (T). Felder in der Tabelle werden danach automatisch vorausgefüllt (grün markiert).
+              Die ganze Jahresliste auf einmal hochladen — Ferien & Krank werden automatisch pro Monat verteilt.
+              Urlaub, Gleitzeit und Umzug → Ferien (T); Krankheit → Krank (T).
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
               <input type="file" accept=".xlsx,.xlsm" onChange={e => { setAbFile(e.target.files[0]); setAbPreview(null) }} style={{ fontSize: 12 }} />

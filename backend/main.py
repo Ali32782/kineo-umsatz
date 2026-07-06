@@ -301,6 +301,7 @@ async def upload_abwesenheiten(
     file: UploadFile = File(...),
     year: int = Form(...),
     month: int = Form(...),
+    all_months: bool = Form(True),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -312,58 +313,87 @@ async def upload_abwesenheiten(
 
     content = await file.read()
     mas = db.query(MAStammdaten).all()
-    from abwesenheiten_import import parse_abwesenheiten_xlsx
+    from abwesenheiten_import import parse_abwesenheiten_xlsx, parse_abwesenheiten_xlsx_for_year
 
     try:
-        result = parse_abwesenheiten_xlsx(content, year, month, mas)
+        if all_months:
+            result = parse_abwesenheiten_xlsx_for_year(content, year, mas)
+        else:
+            single = parse_abwesenheiten_xlsx(content, year, month, mas)
+            result = {
+                "by_month": {month: single["by_ma"]} if single["by_ma"] else {},
+                "months": [month] if single["by_ma"] else [],
+                "details": single["details"],
+                "unmatched": single["unmatched"],
+                "skipped": single["skipped"],
+            }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Excel konnte nicht gelesen werden: {e}")
 
-    if not result["by_ma"] and not result["unmatched"]:
-        raise HTTPException(status_code=400, detail="Keine Abwesenheiten im gewählten Monat gefunden")
+    if not result["months"] and not result["unmatched"]:
+        raise HTTPException(status_code=400, detail="Keine Abwesenheiten für dieses Jahr gefunden")
 
     now = datetime.utcnow()
-    inputs_saved = {}
-    for ma_name, vals in result["by_ma"].items():
-        existing = db.query(MonthlyInput).filter(
-            MonthlyInput.ma_name == ma_name,
-            MonthlyInput.year == year,
-            MonthlyInput.month == month,
-        ).first()
-        if existing:
-            existing.ferien_t = vals["ferien_t"]
-            existing.krank_t = vals["krank_t"]
-            existing.updated_at = now
-            existing.updated_by = current_user.username
-            row = existing
-        else:
-            row = MonthlyInput(
-                ma_name=ma_name, year=year, month=month,
-                ferien_t=vals["ferien_t"], krank_t=vals["krank_t"],
-                updated_at=now, updated_by=current_user.username,
-            )
-            db.add(row)
-        inputs_saved[ma_name] = {
-            "ferien_t": vals["ferien_t"],
-            "krank_t": vals["krank_t"],
-            "kurs_h": row.kurs_h or 0,
-            "workshop_h": row.workshop_h or 0,
-            "marketing_h": row.marketing_h or 0,
-            "laufanalyse_h": row.laufanalyse_h or 0,
-            "notes": row.notes,
-        }
+    inputs_saved: dict[str, dict] = {}
+    total_ma = 0
+
+    def save_month(m: int, by_ma: dict):
+        nonlocal total_ma
+        for ma_name, vals in by_ma.items():
+            existing = db.query(MonthlyInput).filter(
+                MonthlyInput.ma_name == ma_name,
+                MonthlyInput.year == year,
+                MonthlyInput.month == m,
+            ).first()
+            if existing:
+                existing.ferien_t = vals["ferien_t"]
+                existing.krank_t = vals["krank_t"]
+                existing.updated_at = now
+                existing.updated_by = current_user.username
+                row = existing
+            else:
+                row = MonthlyInput(
+                    ma_name=ma_name, year=year, month=m,
+                    ferien_t=vals["ferien_t"], krank_t=vals["krank_t"],
+                    updated_at=now, updated_by=current_user.username,
+                )
+                db.add(row)
+            total_ma += 1
+            if m == month:
+                inputs_saved[ma_name] = {
+                    "ferien_t": vals["ferien_t"],
+                    "krank_t": vals["krank_t"],
+                    "kurs_h": row.kurs_h or 0,
+                    "workshop_h": row.workshop_h or 0,
+                    "marketing_h": row.marketing_h or 0,
+                    "laufanalyse_h": row.laufanalyse_h or 0,
+                    "notes": row.notes,
+                }
+
+    for m in result["months"]:
+        save_month(m, result["by_month"][m])
+
     db.commit()
 
-    matched = len(result["by_ma"])
-    msg = f"{matched} Mitarbeiter/innen — Ferien & Krank vorausgefüllt für {MONTH_NAMES_DE[month]} {year}"
+    months_imported = result["months"]
+    if len(months_imported) > 1:
+        range_label = (
+            f"{MONTH_NAMES_DE[months_imported[0]]}–{MONTH_NAMES_DE[months_imported[-1]]} {year}"
+        )
+        msg = f"Ferien & Krank für {len(months_imported)} Monate importiert ({range_label})"
+    elif months_imported:
+        msg = f"{len(result['by_month'][months_imported[0]])} Mitarbeiter/innen — Ferien & Krank für {MONTH_NAMES_DE[months_imported[0]]} {year}"
+    else:
+        msg = "Keine passenden Abwesenheiten importiert"
     if result["unmatched"]:
         msg += f" — {len(result['unmatched'])} nicht zugeordnet"
 
     return {
         "message": msg,
-        "data": result["by_ma"],
+        "data": result["by_month"].get(month, {}),
         "inputs": inputs_saved,
         "details": result["details"],
+        "months_imported": months_imported,
         "unmatched": result["unmatched"],
         "skipped": result["skipped"],
     }

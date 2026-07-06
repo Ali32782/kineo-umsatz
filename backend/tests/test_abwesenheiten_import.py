@@ -62,3 +62,28 @@ def test_parse_juni_2026_fixture():
         assert result["details"]
     finally:
         db.close()
+
+
+def test_parse_year_splits_across_months():
+    import io
+    from openpyxl import Workbook
+    from abwesenheiten_import import parse_abwesenheiten_xlsx_for_year
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Mitarbeitende", "Abwesenheitsart", "Von", "Bis", "Halbtag"])
+    ws.append(["Clara Benning", "Urlaub", date(2026, 1, 5), date(2026, 1, 9), "-"])
+    ws.append(["Clara Benning", "Krankheit", date(2026, 6, 10), date(2026, 6, 12), "-"])
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    db = SessionLocal()
+    try:
+        mas = db.query(MAStammdaten).all()
+        result = parse_abwesenheiten_xlsx_for_year(buf.getvalue(), 2026, mas)
+        assert 1 in result["months"]
+        assert 6 in result["months"]
+        assert result["by_month"][1]["Clara.B"]["ferien_t"] >= 1
+        assert result["by_month"][6]["Clara.B"]["krank_t"] >= 1
+    finally:
+        db.close()
