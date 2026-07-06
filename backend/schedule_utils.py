@@ -125,6 +125,37 @@ def create_month_schedule_override(db, ma_name: str, year: int, month: int, days
     return _save_schedule_set(db, schedule_set, ma_name, days)
 
 
+def seed_default_schedule_for_ma(db, ma, valid_from: str = "2026-01") -> bool:
+    """Arbeitsplan aus MA_PATTERNS + Haupt-Team — nur wenn noch keine Version existiert."""
+    from calc import MA_PATTERNS, TAG_PCT, day_pct_to_halves
+    from database import MAScheduleSet
+
+    if db.query(MAScheduleSet).filter_by(ma_name=ma.name).first():
+        return False
+
+    pat = MA_PATTERNS.get(ma.name)
+    if not pat:
+        pat = {k: TAG_PCT for k in ("mo", "di", "mi", "do", "fr")}
+
+    standort = ma.team if ma.team not in ("Management", "Office") else None
+    day_keys = {0: "mo", 1: "di", 2: "mi", 3: "do", 4: "fr"}
+    days: list[dict] = []
+    for wd, key in day_keys.items():
+        vm, nm = day_pct_to_halves(pat.get(key, 0) or 0)
+        if vm or nm:
+            days.append({
+                "weekday": wd,
+                "vm_pct": vm,
+                "vm_standort": standort if vm else None,
+                "nm_pct": nm,
+                "nm_standort": standort if nm else None,
+            })
+    if not days:
+        return False
+    create_schedule_set(db, ma.name, valid_from, days)
+    return True
+
+
 def list_schedule_versions(db, ma_name: str) -> list[dict]:
     from database import MAScheduleSet
 

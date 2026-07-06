@@ -1393,12 +1393,17 @@ function AdminPage() {
           <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 20px"}}>Arbeitstag-Muster pro Mitarbeiter/in</h3>
           {!scheduleMA ? (
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
-              {mas.filter(m=>m.is_active).map(ma=>(
+              {[...mas].sort((a,b)=>(b.is_active-a.is_active)||a.display_name.localeCompare(b.display_name)).map(ma=>(
                 <button key={ma.name} onClick={()=>loadSchedule(ma.name)} style={{
-                  background:"#F8F9FA",border:"1.5px solid #E0E0E0",borderRadius:8,padding:"14px 16px",
+                  background: ma.is_active ? "#F8F9FA" : "#FFF8F0",
+                  border: ma.is_active ? "1.5px solid #E0E0E0" : "1.5px solid #F0D8B8",
+                  borderRadius:8,padding:"14px 16px",
                   cursor:"pointer",textAlign:"left"
                 }}>
-                  <div style={{fontWeight:700,fontSize:13}}>{ma.display_name}</div>
+                  <div style={{fontWeight:700,fontSize:13}}>
+                    {ma.display_name}
+                    {!ma.is_active && <span style={{fontWeight:500,color:"#B8860B",marginLeft:6}}>(ausgetreten)</span>}
+                  </div>
                   <div style={{fontSize:11,color:"#888",marginTop:4}}>{ma.team} · {(ma.bg_pct*100).toFixed(0)}%</div>
                 </button>
               ))}

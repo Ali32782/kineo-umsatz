@@ -281,6 +281,8 @@ DEPARTED_MAS = [
 
 def _backfill_departed_mas():
     """Ausgetretene MA aus CSV — für Jan–Mai Umsätze im Dashboard."""
+    from schedule_utils import seed_default_schedule_for_ma
+
     db = SessionLocal()
     try:
         for spec in DEPARTED_MAS:
@@ -291,7 +293,7 @@ def _backfill_departed_mas():
                 if not ma.eintritt:
                     ma.eintritt = "2026-01-01"
             else:
-                db.add(MAStammdaten(
+                ma = MAStammdaten(
                     name=spec["name"],
                     display_name=spec["display_name"],
                     team=spec.get("team"),
@@ -300,7 +302,23 @@ def _backfill_departed_mas():
                     eintritt="2026-01-01",
                     austritt=spec["austritt"],
                     is_active=False,
-                ))
+                )
+                db.add(ma)
+                db.flush()
+            seed_default_schedule_for_ma(db, ma, "2026-01")
+        db.commit()
+    finally:
+        db.close()
+
+
+def _backfill_missing_schedules():
+    """Für alle MA ohne Arbeitsplan: Standard aus MA_PATTERNS + Team-Standort."""
+    from schedule_utils import seed_default_schedule_for_ma
+
+    db = SessionLocal()
+    try:
+        for ma in db.query(MAStammdaten).all():
+            seed_default_schedule_for_ma(db, ma, "2026-01")
         db.commit()
     finally:
         db.close()
@@ -352,26 +370,11 @@ def seed_schedules_from_excel():
 
 def seed_all_ma_schedules_fallback():
     """Fallback wenn Excel fehlt: MA_PATTERNS + Haupt-Team als Standort."""
-    from calc import MA_PATTERNS, day_pct_to_halves
-    from schedule_utils import create_schedule_set
+    from schedule_utils import seed_default_schedule_for_ma
+
     db = SessionLocal()
-    day_keys = {0: "mo", 1: "di", 2: "mi", 3: "do", 4: "fr"}
-    mas = db.query(MAStammdaten).filter_by(is_active=True).all()
-    for ma in mas:
-        if db.query(MAScheduleSet).filter_by(ma_name=ma.name).first():
-            continue
-        pat = MA_PATTERNS.get(ma.name, {})
-        standort = ma.team if ma.team not in ("Management", "Office") else None
-        days = []
-        for wd, key in day_keys.items():
-            vm, nm = day_pct_to_halves(pat.get(key, 0) or 0)
-            if vm or nm:
-                days.append({
-                    "weekday": wd, "vm_pct": vm, "vm_standort": standort if vm else None,
-                    "nm_pct": nm, "nm_standort": standort if nm else None,
-                })
-        if days:
-            create_schedule_set(db, ma.name, "2026-01", days)
+    for ma in db.query(MAStammdaten).all():
+        seed_default_schedule_for_ma(db, ma, "2026-01")
     db.commit()
     db.close()
 
@@ -397,6 +400,7 @@ def init_db():
     seed_initial_data()
     seed_schedules_from_excel()
     _backfill_departed_mas()
+    _backfill_missing_schedules()
 
 def seed_initial_data():
     """Seed users and MA Stammdaten on first run"""

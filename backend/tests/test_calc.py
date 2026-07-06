@@ -331,3 +331,21 @@ def test_get_feiertage_sets_prefers_db_over_fallback():
         db.query(Feiertag).filter_by(year=2099).delete()
         db.commit()
         db.close()
+
+
+def test_departed_ma_get_default_schedule():
+    from database import MAScheduleSet, _backfill_departed_mas
+    from schedule_utils import get_schedule_entries_for_month
+
+    _backfill_departed_mas()
+    db = SessionLocal()
+    try:
+        for name in ("Andreas.N", "Felica K.", "Eve.S"):
+            assert db.query(MAScheduleSet).filter_by(ma_name=name).first() is not None
+            entries = get_schedule_entries_for_month(name, 2026, 3, db)
+            assert entries, f"{name} sollte Arbeitsplan haben"
+            standorte = {e.vm_standort for e in entries if e.vm_standort}
+            assert standorte, f"{name} sollte Standort im Plan haben"
+            assert compute_soll_tage(name, 2026, 3, db=db) > 0
+    finally:
+        db.close()
