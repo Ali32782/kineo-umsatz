@@ -97,3 +97,25 @@ def email_new_ma(ma_names: list[str]) -> bool:
       </div>
     </div>"""
     return send_email(CEO_EMAILS, f"👤 Neue MA in CSV: {', '.join(ma_names)}", html)
+
+
+def email_password_reset(to_email: str, reset_url: str, full_name: str) -> bool:
+    name = full_name or "Nutzer/in"
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+      <div style="background:#004869;padding:24px;border-radius:8px 8px 0 0">
+        <h2 style="color:white;margin:0">🔒 Passwort zurücksetzen</h2>
+      </div>
+      <div style="background:white;padding:24px;border:1px solid #eee">
+        <p style="color:#555">Hallo {name},</p>
+        <p style="color:#555">du hast ein neues Passwort für <strong>Kineo Analytics</strong> angefordert.</p>
+        <a href="{reset_url}" style="display:inline-block;background:#004869;color:white;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:700;margin:16px 0">
+          Neues Passwort setzen →
+        </a>
+        <p style="color:#888;font-size:13px">Der Link ist 1 Stunde gültig. Falls du das nicht warst, ignoriere diese E-Mail.</p>
+      </div>
+      <div style="padding:16px;color:#aaa;font-size:11px;text-align:center">
+        Kineo AG Umsatzanalyse
+      </div>
+    </div>"""
+    return send_email([to_email], "Kineo Analytics — Passwort zurücksetzen", html)

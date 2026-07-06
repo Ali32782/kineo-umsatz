@@ -293,9 +293,115 @@ function LoginPage({ onLogin }) {
             border: "none", borderRadius: 8, fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 8
           }}>{loading ? "Anmelden…" : "Anmelden"}</button>
         </form>
-        <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "#AAA" }}>
-          Standard: ali / sereina / martino — Passwort: kineo2026
+        <div style={{ textAlign: "center", marginTop: 16 }}>
+          <a href="?forgot=1" style={{ fontSize: 13, color: "#004869", textDecoration: "none", fontWeight: 600 }}>
+            Passwort vergessen?
+          </a>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function ForgotPasswordPage({ onBack }) {
+  const [identifier, setIdentifier] = useState("")
+  const [msg, setMsg] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setMsg(null)
+    try {
+      const res = await fetch(`${API}/api/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || "Anfrage fehlgeschlagen")
+      setMsg({ type: "ok", text: data.message })
+    } catch (e) {
+      setMsg({ type: "err", text: e.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,#004869,#0a2734)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: "white", borderRadius: 10, padding: "48px 40px", width: 380, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+        <h2 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", color: "#004869" }}>Passwort vergessen</h2>
+        <p style={{ fontSize: 13, color: "#888", marginBottom: 24 }}>Benutzername oder E-Mail eingeben — wir senden einen Link (1h gültig).</p>
+        <form onSubmit={submit}>
+          <input
+            type="text"
+            value={identifier}
+            onChange={e => setIdentifier(e.target.value)}
+            placeholder="z. B. ali oder name@kineo.swiss"
+            required
+            style={{ width: "100%", padding: "10px 14px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 14, boxSizing: "border-box", marginBottom: 16 }}
+          />
+          {msg && <div style={{ background: msg.type === "ok" ? "#E8F8E8" : "#FFE8E8", color: msg.type === "ok" ? "#1a7a1a" : "#c0392b", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{msg.text}</div>}
+          <button type="submit" disabled={loading} style={{ width: "100%", padding: "12px", background: "#004869", color: "white", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>
+            {loading ? "Senden…" : "Link senden"}
+          </button>
+        </form>
+        <button type="button" onClick={onBack} style={{ width: "100%", marginTop: 12, padding: "10px", background: "transparent", border: "none", color: "#888", cursor: "pointer", fontSize: 13 }}>
+          ← Zurück zum Login
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ResetPasswordPage({ token, onDone }) {
+  const [password, setPassword] = useState("")
+  const [confirm, setConfirm] = useState("")
+  const [msg, setMsg] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (password !== confirm) { setMsg({ type: "err", text: "Passwörter stimmen nicht überein" }); return }
+    if (password.length < 8) { setMsg({ type: "err", text: "Mindestens 8 Zeichen" }); return }
+    setLoading(true)
+    try {
+      const res = await fetch(`${API}/api/auth/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, new_password: password }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || "Zurücksetzen fehlgeschlagen")
+      setMsg({ type: "ok", text: data.message })
+      setTimeout(onDone, 2000)
+    } catch (e) {
+      setMsg({ type: "err", text: e.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,#004869,#0a2734)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: "white", borderRadius: 10, padding: "48px 40px", width: 380, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+        <h2 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 24px", color: "#004869" }}>Neues Passwort</h2>
+        <form onSubmit={submit}>
+          {[["password", "Neues Passwort"], ["confirm", "Passwort bestätigen"]].map(([k, label]) => (
+            <div key={k} style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>{label}</label>
+              <input type="password" value={k === "password" ? password : confirm}
+                onChange={e => (k === "password" ? setPassword : setConfirm)(e.target.value)}
+                required minLength={8}
+                style={{ width: "100%", padding: "10px 14px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }} />
+            </div>
+          ))}
+          {msg && <div style={{ background: msg.type === "ok" ? "#E8F8E8" : "#FFE8E8", color: msg.type === "ok" ? "#1a7a1a" : "#c0392b", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{msg.text}</div>}
+          <button type="submit" disabled={loading} style={{ width: "100%", padding: "12px", background: "#004869", color: "white", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>
+            {loading ? "Speichern…" : "Passwort speichern"}
+          </button>
+        </form>
       </div>
     </div>
   )
@@ -1353,7 +1459,19 @@ function AdminPage() {
 function ProfilPage() {
   const auth = useAuth()
   const [form, setForm] = useState({current_password:"",new_password:"",confirm:""})
+  const [email, setEmail] = useState("")
   const [msg, setMsg] = useState(null)
+
+  useEffect(() => {
+    api("/api/profile").then(p => setEmail(p.email || "")).catch(() => {})
+  }, [])
+
+  const saveEmail = async () => {
+    try {
+      await api("/api/profile", { method: "PATCH", body: JSON.stringify({ email }) })
+      setMsg({ type: "ok", text: "E-Mail gespeichert — für «Passwort vergessen»" })
+    } catch (e) { setMsg({ type: "err", text: e.message }) }
+  }
 
   const submit = async () => {
     if (form.new_password !== form.confirm) { setMsg({type:"err",text:"Passwörter stimmen nicht überein"}); return }
@@ -1379,6 +1497,15 @@ function ProfilPage() {
               <span style={{fontWeight:600,fontSize:13}}>{v||"—"}</span>
             </div>
           ))}
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>E-Mail (für Passwort-Reset)</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="name@kineo.swiss"
+                style={{ flex: 1, padding: "8px 12px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
+              <button type="button" onClick={saveEmail} style={{ padding: "8px 14px", background: "#F0F0F0", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Speichern</button>
+            </div>
+          </div>
         </div>
         <div style={{background:"white",borderRadius:12,padding:28,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
           <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 20px",color:"#004869"}}>🔒 Passwort ändern</h3>
@@ -1794,6 +1921,10 @@ function LohnrechnerPage() {
 
 // ── Root App ───────────────────────────────────────────────────────────────
 export default function App() {
+  const params = new URLSearchParams(window.location.search)
+  const resetToken = params.get("reset")
+  const showForgot = params.get("forgot") === "1"
+
   const [user, setUser] = useState(() => {
     const token = localStorage.getItem("token")
     if (!token) return null
@@ -1811,6 +1942,14 @@ export default function App() {
   }
   const logout = () => { localStorage.clear(); setUser(null) }
 
+  const clearAuthQuery = () => { window.history.replaceState({}, "", window.location.pathname) }
+
+  if (!user && resetToken) {
+    return <ResetPasswordPage token={resetToken} onDone={() => { clearAuthQuery(); window.location.reload() }} />
+  }
+  if (!user && showForgot) {
+    return <ForgotPasswordPage onBack={() => { clearAuthQuery() }} />
+  }
   if (!user) return <LoginPage onLogin={handleLogin} />
 
   const pages = { dashboard: DashboardPage, upload: UploadPage, overview: OverviewPage, exports: ExportsPage, admin: AdminPage, bilats: BilatDataPage, lohnrechner: LohnrechnerPage, profil: ProfilPage }

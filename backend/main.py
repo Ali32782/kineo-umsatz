@@ -21,6 +21,7 @@ from email_service import email_zeg_alarm, email_csv_reminder
 SECRET_KEY = os.environ.get("SECRET_KEY", "kineo-secret-2026-change-in-prod")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 hours
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://kineo-umsatz-1.onrender.com").rstrip("/")
 
 app = FastAPI(title="Kineo Umsatzanalyse", version="1.0.0")
 
@@ -87,6 +88,49 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
             "team": user.team,
         }
     }
+
+class ForgotPasswordRequest(BaseModel):
+    identifier: str  # Benutzername oder E-Mail
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+@app.post("/api/auth/forgot-password")
+def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """Reset-Link per E-Mail — antwortet immer gleich (kein User-Enumeration)."""
+    import secrets
+    from email_service import email_password_reset
+
+    ident = req.identifier.strip().lower()
+    user = db.query(User).filter(
+        (User.username == ident) | (User.email == ident)
+    ).first()
+
+    msg = "Falls ein Konto existiert, wurde ein Link an die hinterlegte E-Mail gesendet."
+    if user and user.is_active and user.email:
+        token = secrets.token_urlsafe(32)
+        user.reset_token = token
+        user.reset_token_expires = datetime.utcnow() + timedelta(hours=1)
+        db.commit()
+        reset_url = f"{APP_BASE_URL}/?reset={token}"
+        email_password_reset(user.email, reset_url, user.full_name or user.username)
+    return {"message": msg}
+
+@app.post("/api/auth/reset-password")
+def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
+    from auth import hash_password
+
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Passwort muss mindestens 8 Zeichen haben")
+    user = db.query(User).filter_by(reset_token=req.token).first()
+    if not user or not user.reset_token_expires or user.reset_token_expires < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Link ungültig oder abgelaufen")
+    user.hashed_password = hash_password(req.new_password)
+    user.reset_token = None
+    user.reset_token_expires = None
+    db.commit()
+    return {"message": "Passwort wurde gesetzt — du kannst dich jetzt anmelden."}
 
 # ── MA Stammdaten ─────────────────────────────────────────────────────────
 @app.get("/api/ma")
@@ -559,7 +603,30 @@ def change_password(data: PasswordChange, db: Session = Depends(get_db), current
         raise HTTPException(status_code=400, detail="Passwort muss mindestens 8 Zeichen haben")
     current_user.hashed_password = hash_password(data.new_password)
     db.commit()
-    return {"message": "Passwort geaendert"}
+    return {"message": "Passwort geändert"}
+
+class ProfileUpdate(BaseModel):
+    email: Optional[str] = None
+
+@app.get("/api/profile")
+def get_profile(current_user: User = Depends(get_current_user)):
+    return {
+        "username": current_user.username,
+        "full_name": current_user.full_name,
+        "email": current_user.email,
+        "role": current_user.role,
+        "team": current_user.team,
+    }
+
+@app.patch("/api/profile")
+def update_profile(data: ProfileUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if data.email is not None:
+        email = data.email.strip().lower() or None
+        if email and "@" not in email:
+            raise HTTPException(status_code=400, detail="Ungültige E-Mail-Adresse")
+        current_user.email = email
+        db.commit()
+    return {"message": "Profil aktualisiert", "email": current_user.email}
 
 # ── Config / Years ────────────────────────────────────────────────────────
 @app.get("/api/years")

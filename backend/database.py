@@ -16,7 +16,10 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     username = Column(String, unique=True, nullable=False)
     full_name = Column(String)
+    email = Column(String, nullable=True)
     hashed_password = Column(String, nullable=False)
+    reset_token = Column(String, nullable=True)
+    reset_token_expires = Column(DateTime, nullable=True)
     role = Column(String, default="teamlead")  # ceo, bd, teamlead
     team = Column(String, nullable=True)        # z.B. "Seefeld", "Wipkingen"
     is_active = Column(Boolean, default=True)
@@ -187,6 +190,37 @@ def migrate_schema():
             if "override_month" not in cols:
                 conn.execute(text("ALTER TABLE ma_schedule_sets ADD COLUMN override_month INTEGER"))
     migrate_legacy_schedule_sets()
+    if inspector.has_table("users"):
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        with engine.begin() as conn:
+            if "email" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN email VARCHAR"))
+            if "reset_token" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN reset_token VARCHAR"))
+            if "reset_token_expires" not in cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN reset_token_expires DATETIME"))
+        _backfill_user_emails()
+
+def _backfill_user_emails():
+    """Bekannte Kineo-E-Mails für Passwort-Reset nachtragen."""
+    defaults = {
+        "ali": "ali.peters@kineo.swiss",
+        "sereina": "sereina.urech@kineo.swiss",
+        "martino": "martino.crivelli@kineo.swiss",
+        "clara": "clara.benning@kineo.swiss",
+        "hanna": "hanna.raffeiner@kineo.swiss",
+        "raphael": "raphael.hahner@kineo.swiss",
+        "helen": "helen.schwank@kineo.swiss",
+    }
+    db = SessionLocal()
+    try:
+        for username, email in defaults.items():
+            user = db.query(User).filter_by(username=username).first()
+            if user and not user.email:
+                user.email = email
+        db.commit()
+    finally:
+        db.close()
 
 def migrate_legacy_schedule_sets():
     """Bestehende ma_schedule-Einträge → Version «gültig ab 2026-01»."""
@@ -288,20 +322,20 @@ def seed_initial_data():
     # Seed users if empty
     if db.query(User).count() == 0:
         users = [
-            User(username="ali", full_name="Ali Peters", role="ceo",
+            User(username="ali", full_name="Ali Peters", role="ceo", email="ali.peters@kineo.swiss",
                  hashed_password=hash_password("kineo2026")),
-            User(username="martino", full_name="Martino Crivelli", role="bd",
+            User(username="martino", full_name="Martino Crivelli", role="bd", email="martino.crivelli@kineo.swiss",
                  hashed_password=hash_password("kineo2026")),
-            User(username="sereina", full_name="Sereina Urech", role="ceo",
+            User(username="sereina", full_name="Sereina Urech", role="ceo", email="sereina.urech@kineo.swiss",
                  hashed_password=hash_password("kineo2026")),
             User(username="clara", full_name="Clara Benning", role="teamlead", team="Escher Wyss",
-                 hashed_password=hash_password("kineo2026")),
+                 email="clara.benning@kineo.swiss", hashed_password=hash_password("kineo2026")),
             User(username="hanna", full_name="Hanna Raffeiner", role="teamlead", team="Thalwil",
-                 hashed_password=hash_password("kineo2026")),
+                 email="hanna.raffeiner@kineo.swiss", hashed_password=hash_password("kineo2026")),
             User(username="raphael", full_name="Raphael H.", role="teamlead", team="Wipkingen",
-                 hashed_password=hash_password("kineo2026")),
+                 email="raphael.hahner@kineo.swiss", hashed_password=hash_password("kineo2026")),
             User(username="helen", full_name="Helen S.", role="teamlead", team="Zollikon",
-                 hashed_password=hash_password("kineo2026")),
+                 email="helen.schwank@kineo.swiss", hashed_password=hash_password("kineo2026")),
         ]
         db.add_all(users)
 
