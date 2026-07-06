@@ -12,6 +12,7 @@ import os, io, json
 from database import get_db, init_db, get_storage_info, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, MAScheduleSet, Feiertag, Notification, BilatData
 from calc import (
     compute_zeg, compute_soll_tage, parse_csv_umsatz, parse_csv_umsatz_result,
+    parse_csv_pivot_all_months_result,
     zeg_color, MONTH_NAMES_DE, MA_PATTERNS,
     is_employed_in_month,
 )
@@ -163,6 +164,72 @@ async def upload_csv(
     except:
         text = content.decode('latin-1')
 
+    mas = db.query(MAStammdaten).all()
+    from abwesenheiten_import import match_ma_name
+
+    def resolve_umsatz_map(umsatz_map: dict) -> tuple[dict[str, float], list[str]]:
+        resolved: dict[str, float] = {}
+        unmatched: list[str] = []
+        for csv_name, amount in umsatz_map.items():
+            ma = next((m for m in mas if m.name == csv_name), None)
+            ma_name = csv_name if ma else match_ma_name(csv_name, mas)
+            if ma_name:
+                resolved[ma_name] = resolved.get(ma_name, 0) + amount
+            else:
+                unmatched.append(csv_name)
+        return resolved, unmatched
+
+    pivot_all = parse_csv_pivot_all_months_result(text, year)
+    if pivot_all:
+        warnings = list(pivot_all.get("warnings") or [])
+        months_imported: list[int] = []
+        total_inserted = 0
+        all_unmatched: list[str] = []
+        preview_resolved: dict[str, float] = {}
+        for m in pivot_all["months"]:
+            resolved, unmatched = resolve_umsatz_map(pivot_all["by_month"][m])
+            if not resolved:
+                continue
+            all_unmatched.extend(unmatched)
+            db.query(UmsatzData).filter(
+                UmsatzData.year == year,
+                UmsatzData.month == m,
+            ).delete()
+            for name, amount in resolved.items():
+                db.add(UmsatzData(
+                    ma_name=name, year=year, month=m,
+                    umsatz=amount, uploaded_by=current_user.username,
+                ))
+            total_inserted += len(resolved)
+            months_imported.append(m)
+            if m == month:
+                preview_resolved = resolved
+
+        if not months_imported:
+            raise HTTPException(
+                status_code=400,
+                detail="Keine Mitarbeiter in der CSV erkannt — bestehende Werte wurden nicht gelöscht.",
+            )
+
+        db.commit()
+        first, last = months_imported[0], months_imported[-1]
+        range_label = (
+            f"{MONTH_NAMES_DE[first]}–{MONTH_NAMES_DE[last]} {year}"
+            if first != last else f"{MONTH_NAMES_DE[first]} {year}"
+        )
+        msg = f"{total_inserted} MA-Einträge für {len(months_imported)} Monate importiert ({range_label})"
+        unmatched = sorted(set(all_unmatched))
+        if unmatched:
+            msg += f" — {len(unmatched)} nicht zugeordnet"
+        return {
+            "message": msg,
+            "data": preview_resolved or resolve_umsatz_map(pivot_all["by_month"][months_imported[-1]])[0],
+            "months_imported": months_imported,
+            "unmatched": unmatched,
+            "warnings": warnings,
+            "total_umsatz": round(sum(preview_resolved.values()), 2) if preview_resolved else 0,
+        }
+
     csv_result = parse_csv_umsatz_result(text, year=year, month=month)
     umsatz_map = csv_result["by_name"]
     if not umsatz_map:
@@ -170,9 +237,6 @@ async def upload_csv(
             status_code=400,
             detail="CSV enthält keine Umsatzdaten — bestehende Werte wurden nicht gelöscht.",
         )
-
-    mas = db.query(MAStammdaten).all()
-    from abwesenheiten_import import match_ma_name
 
     # Plausibilität: Summe vs. Vormonate
     warnings = list(csv_result.get("warnings") or [])
@@ -194,15 +258,7 @@ async def upload_csv(
                     f"(Median Vormonate: CHF {med:,.0f}). Bitte Monatsexport prüfen."
                 )
 
-    resolved: dict[str, float] = {}
-    unmatched: list[str] = []
-    for csv_name, amount in umsatz_map.items():
-        ma = next((m for m in mas if m.name == csv_name), None)
-        ma_name = csv_name if ma else match_ma_name(csv_name, mas)
-        if ma_name:
-            resolved[ma_name] = resolved.get(ma_name, 0) + amount
-        else:
-            unmatched.append(csv_name)
+    resolved, unmatched = resolve_umsatz_map(umsatz_map)
 
     if not resolved:
         raise HTTPException(
@@ -233,6 +289,7 @@ async def upload_csv(
     return {
         "message": msg,
         "data": resolved,
+        "months_imported": [month],
         "unmatched": unmatched,
         "warnings": warnings,
         "total_umsatz": round(sum(resolved.values()), 2),

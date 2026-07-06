@@ -588,6 +588,58 @@ def parse_csv_umsatz_result(
         "total": total,
     }
 
+
+def parse_csv_pivot_all_months_result(content: str, year: int) -> dict | None:
+    """
+    Kineo-Pivot-CSV (Name;Betrag;Jan 2026;Feb 2026;…) → alle Monate eines Jahrs.
+    Gibt None zurück wenn keine Pivot-Monatsspalten für das Jahr vorhanden.
+    """
+    lines = [ln for ln in content.strip().splitlines() if ln.strip()]
+    if len(lines) < 2:
+        return None
+
+    header = [p.strip() for p in lines[0].split(";")]
+    raw_rows = [[p.strip() for p in ln.split(";")] for ln in lines[1:]]
+    pivot_cols = _find_pivot_month_columns(header)
+    year_cols = sorted(
+        [(col, m) for col, m, y in pivot_cols if y == year],
+        key=lambda x: x[1],
+    )
+    if len(year_cols) < 2:
+        return None
+
+    norm = [_norm_csv_header(h) for h in header]
+    name_col = next((i for i, h in enumerate(norm) if h in _CSV_NAME_HEADERS), 0)
+
+    by_month: dict[int, dict[str, float]] = {}
+    for col, m in year_cols:
+        by_name: dict[str, float] = {}
+        for parts in raw_rows:
+            if len(parts) <= max(name_col, col):
+                continue
+            name = parts[name_col].strip()
+            if _norm_csv_header(name) in _CSV_SKIP_NAMES:
+                continue
+            try:
+                amount = parse_chf_amount(parts[col])
+            except (ValueError, IndexError):
+                continue
+            if amount <= 0:
+                continue
+            by_name[name] = by_name.get(name, 0) + amount
+        if by_name:
+            by_month[m] = by_name
+
+    if not by_month:
+        return None
+
+    months = sorted(by_month.keys())
+    warnings = [
+        f"Pivot-CSV: {len(months)} Monate mit Umsatz für {year} "
+        f"({MONTH_NAMES_DE[months[0]]}–{MONTH_NAMES_DE[months[-1]]})."
+    ]
+    return {"by_month": by_month, "warnings": warnings, "months": months}
+
 def zeg_color(zeg_b: float | None) -> str:
     if zeg_b is None:
         return "gray"

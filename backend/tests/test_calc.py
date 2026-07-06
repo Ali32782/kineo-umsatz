@@ -92,6 +92,22 @@ def test_parse_kineo_pivot_csv_uses_month_column_not_ytd_betrag():
     assert any("Jahressumme" in w or "Juni" in w for w in result["warnings"])
 
 
+def test_parse_kineo_pivot_csv_all_months():
+    from calc import parse_csv_pivot_all_months_result
+
+    fixture = Path(__file__).resolve().parent / "fixtures" / "kineo_taxpunkte_pivot_2026.csv"
+    if not fixture.exists():
+        return
+    content = fixture.read_text(encoding="utf-8-sig")
+    result = parse_csv_pivot_all_months_result(content, 2026)
+    assert result is not None
+    assert 1 in result["months"]
+    assert 6 in result["months"]
+    assert len(result["months"]) >= 6
+    assert result["by_month"][6]["Andrina.K"] == 16043.84
+    assert result["by_month"][1]["Andrina.K"] == 18127.40
+
+
 def test_compute_soll_tage_emma_may():
     soll = compute_soll_tage("Emma.L", 2026, 5)
     assert soll > 0

@@ -783,7 +783,11 @@ function UploadPage() {
       {/* Step 1: CSV Upload */}
       {step === 1 && (
         <div style={{ background: "white", borderRadius: 8, padding: "32px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-          <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 20px", color: "#004869" }}>CSV aus Software hochladen</h3>
+          <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", color: "#004869" }}>CSV aus Software hochladen</h3>
+          <p style={{ margin: "0 0 20px", fontSize: 12, color: "#666", lineHeight: 1.5 }}>
+            Pivot-CSV mit Spalten «Jan 2026», «Feb 2026» usw.: alle Monate mit Daten werden automatisch importiert.
+            Monat oben dient nur zur Vorschau.
+          </p>
           <div style={{ border: "2px dashed #DDD", borderRadius: 8, padding: "40px", textAlign: "center", marginBottom: 20, background: "#FAFAFA" }}
             onDragOver={e => e.preventDefault()}
             onDrop={e => { e.preventDefault(); setCsvFile(e.dataTransfer.files[0]) }}>
