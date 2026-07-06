@@ -27,6 +27,93 @@ function useAvailableYears() {
   return years
 }
 
+function formatImportDt(iso) {
+  if (!iso) return null
+  try {
+    return new Date(iso).toLocaleString("de-CH", {
+      day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+    })
+  } catch { return null }
+}
+
+function ImportStatusPanel({ year, highlightMonth, onMonthClick, reloadKey = 0, compact = false }) {
+  const { user } = useAuth()
+  const [status, setStatus] = useState(null)
+
+  useEffect(() => {
+    api(`/api/import-status/${year}`).then(setStatus).catch(() => setStatus(null))
+  }, [year, reloadKey])
+
+  if (!status) return null
+
+  const importedCount = status.months.filter(m => m.umsatz.imported).length
+
+  return (
+    <div style={{
+      background: "white", borderRadius: 8, padding: compact ? "14px 18px" : "18px 22px",
+      marginBottom: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12, gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontFamily: "'Roboto Condensed', sans-serif", fontWeight: 700, fontSize: compact ? 14 : 16, color: "#004869" }}>
+            Gespeicherte Daten {year}
+          </div>
+          <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+            {importedCount} von 12 Monaten mit CSV-Umsatz importiert
+          </div>
+        </div>
+        {status.storage && user?.role !== "teamlead" && (
+          <div style={{ fontSize: 11, color: "#666", textAlign: "right", lineHeight: 1.5 }}>
+            <div>Datenbank: {status.storage.database_size_kb} KB</div>
+            {status.storage.on_render && !status.storage.disk_configured && (
+              <div style={{ color: "#c0392b", fontWeight: 600 }}>⚠ Kein persistenter Speicher (/app/data)</div>
+            )}
+          </div>
+        )}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: compact ? "repeat(6, 1fr)" : "repeat(6, 1fr)", gap: 8 }}>
+        {status.months.map(m => {
+          const hasUmsatz = m.umsatz.imported
+          const hasInputs = m.inputs.saved
+          const active = highlightMonth === m.month
+          const short = m.month_name.slice(0, 3)
+          return (
+            <button
+              key={m.month}
+              type="button"
+              onClick={() => onMonthClick?.(m.month)}
+              style={{
+                textAlign: "left", cursor: onMonthClick ? "pointer" : "default",
+                background: hasUmsatz ? "#E8F8E8" : "#F8F8F8",
+                border: active ? "2px solid #004869" : `1px solid ${hasUmsatz ? "#B8E0B8" : "#E0E0E0"}`,
+                borderRadius: 8, padding: "8px 10px", minHeight: compact ? 58 : 72,
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 12, color: "#333", marginBottom: 4 }}>{short}</div>
+              {hasUmsatz ? (
+                <>
+                  <div style={{ fontSize: 10, color: "#1a7a1a", lineHeight: 1.35 }}>
+                    {m.umsatz.ma_count} MA · CHF {Math.round(m.umsatz.total).toLocaleString("de-CH")}
+                  </div>
+                  <div style={{ fontSize: 9, color: "#888", marginTop: 2 }}>
+                    {formatImportDt(m.umsatz.uploaded_at)}
+                    {m.umsatz.uploaded_by ? ` · ${m.umsatz.uploaded_by}` : ""}
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 10, color: "#aaa" }}>kein CSV</div>
+              )}
+              {hasInputs && (
+                <div style={{ fontSize: 9, color: "#666", marginTop: 3 }}>✓ Tätigkeiten</div>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function YearSelect({ value, onChange, years, style }) {
   const opts = useMemo(() => {
     const list = years?.length ? [...years] : []
@@ -448,6 +535,13 @@ function DashboardPage() {
         </div>
       </div>
 
+      <ImportStatusPanel
+        year={year}
+        highlightMonth={month}
+        onMonthClick={setMonth}
+        compact
+      />
+
       {noUmsatz && (
         <div style={{ background: "#FFF3CD", border: "1px solid #FFE69C", borderRadius: 8, padding: "14px 18px", marginBottom: 20, fontSize: 13, color: "#856404" }}>
           <strong>Kein Umsatz für {data.month_name} {year}.</strong> Bitte unter «Daten eingeben» die CSV für diesen Monat hochladen.
@@ -534,6 +628,7 @@ function UploadPage() {
   const inputsFetchRef = useRef(0)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState(null)
+  const [statusKey, setStatusKey] = useState(0)
   const months = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"]
 
   useEffect(() => { api("/api/ma").then(setMaList).catch(console.error) }, [])
@@ -561,6 +656,7 @@ function UploadPage() {
       setCsvPreview(data.data)
       const warn = data.warnings?.length ? ` ${data.warnings.join(" ")}` : ""
       setMsg({ type: data.warnings?.length ? "warn" : "ok", text: data.message + warn })
+      setStatusKey(k => k + 1)
       setStep(2)
     }
     else { setMsg({ type: "err", text: data.detail }) }
@@ -598,6 +694,7 @@ function UploadPage() {
         type: data.unmatched?.length ? "warn" : "ok",
         text: (data.message || "Importiert") + warn + " — Felder unten sind vorausgefüllt.",
       })
+      setStatusKey(k => k + 1)
     } else {
       setMsg({ type: "err", text: data.detail || "Import fehlgeschlagen" })
     }
@@ -619,6 +716,7 @@ function UploadPage() {
     try {
       await api("/api/inputs", { method: "POST", body: JSON.stringify(payload) })
       setMsg({ type: "ok", text: "Alle Inputs gespeichert ✓" })
+      setStatusKey(k => k + 1)
     } catch (e) { setMsg({ type: "err", text: e.message }) }
     setSaving(false)
   }
@@ -648,6 +746,13 @@ function UploadPage() {
     <div>
       <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Roboto Condensed', sans-serif", letterSpacing: "0.03em" }}>Daten eingeben</h1>
       <div style={{ color: "#888", marginBottom: 28, fontSize: 13 }}>CSV-Umsatz + Abwesenheiten-Excel + Tätigkeiten erfassen</div>
+
+      <ImportStatusPanel
+        year={year}
+        highlightMonth={month}
+        onMonthClick={m => { setMonth(m); setStep(1) }}
+        reloadKey={statusKey}
+      />
 
       {/* Month/Year selector */}
       <div style={{ background: "white", borderRadius: 8, padding: "20px 24px", marginBottom: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", gap: 16, alignItems: "center" }}>

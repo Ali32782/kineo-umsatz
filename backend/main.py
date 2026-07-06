@@ -645,6 +645,82 @@ def get_years(db: Session = Depends(get_db), current_user: User = Depends(get_cu
             years.add(y)
     return {"current": current, "years": sorted(years, reverse=True)}
 
+@app.get("/api/import-status/{year}")
+def get_import_status(
+    year: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Welche Monate haben CSV-Umsatz / Tätigkeiten — inkl. Zeitstempel."""
+    umsatz_agg: dict[int, dict] = {}
+    for row in db.query(UmsatzData).filter(UmsatzData.year == year).all():
+        m = row.month
+        if m not in umsatz_agg:
+            umsatz_agg[m] = {"ma_count": 0, "total": 0.0, "uploaded_at": None, "uploaded_by": None}
+        umsatz_agg[m]["ma_count"] += 1
+        umsatz_agg[m]["total"] += row.umsatz or 0
+        if row.uploaded_at and (
+            umsatz_agg[m]["uploaded_at"] is None or row.uploaded_at > umsatz_agg[m]["uploaded_at"]
+        ):
+            umsatz_agg[m]["uploaded_at"] = row.uploaded_at
+            umsatz_agg[m]["uploaded_by"] = row.uploaded_by
+
+    input_agg: dict[int, dict] = {}
+    for row in db.query(MonthlyInput).filter(MonthlyInput.year == year).all():
+        has_activity = any([
+            row.ferien_t, row.kurs_h, row.workshop_h, row.marketing_h, row.laufanalyse_h, row.krank_t,
+        ])
+        if not has_activity:
+            continue
+        m = row.month
+        if m not in input_agg:
+            input_agg[m] = {"ma_count": 0, "updated_at": None, "updated_by": None}
+        input_agg[m]["ma_count"] += 1
+        if row.updated_at and (
+            input_agg[m]["updated_at"] is None or row.updated_at > input_agg[m]["updated_at"]
+        ):
+            input_agg[m]["updated_at"] = row.updated_at
+            input_agg[m]["updated_by"] = row.updated_by
+
+    months_out = []
+    for m in range(1, 13):
+        u = umsatz_agg.get(m, {})
+        inp = input_agg.get(m, {})
+        uploaded_at = u.get("uploaded_at")
+        updated_at = inp.get("updated_at")
+        months_out.append({
+            "month": m,
+            "month_name": MONTH_NAMES_DE[m],
+            "umsatz": {
+                "imported": bool(u.get("ma_count")),
+                "ma_count": u.get("ma_count", 0),
+                "total": round(u.get("total", 0), 2),
+                "uploaded_at": uploaded_at.isoformat() if uploaded_at else None,
+                "uploaded_by": u.get("uploaded_by"),
+            },
+            "inputs": {
+                "saved": bool(inp.get("ma_count")),
+                "ma_count": inp.get("ma_count", 0),
+                "updated_at": updated_at.isoformat() if updated_at else None,
+                "updated_by": inp.get("updated_by"),
+            },
+        })
+
+    storage = None
+    if current_user.role in ("ceo", "bd"):
+        data_dir = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "../data"))
+        db_path = os.path.join(data_dir, "kineo.db")
+        exists = os.path.isfile(db_path)
+        storage = {
+            "data_dir": data_dir,
+            "database_exists": exists,
+            "database_size_kb": round(os.path.getsize(db_path) / 1024, 1) if exists else 0,
+            "on_render": bool(os.environ.get("RENDER")),
+            "disk_configured": data_dir.rstrip("/") == "/app/data",
+        }
+
+    return {"year": year, "months": months_out, "storage": storage}
+
 # ── ZEG-B Trend Alarm ────────────────────────────────────────────────────
 @app.post("/api/admin/check-trends")
 def check_zeg_trends(
@@ -1014,4 +1090,15 @@ def delete_feiertag(year: int, date_str: str, db: Session = Depends(get_db), cur
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "app": "Kineo Umsatzanalyse", "version": "1.0.0"}
+    data_dir = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "../data"))
+    db_path = os.path.join(data_dir, "kineo.db")
+    return {
+        "status": "ok",
+        "app": "Kineo Umsatzanalyse",
+        "version": "1.0.0",
+        "storage": {
+            "data_dir": data_dir,
+            "database_exists": os.path.isfile(db_path),
+            "on_render": bool(os.environ.get("RENDER")),
+        },
+    }
