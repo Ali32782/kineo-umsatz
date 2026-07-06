@@ -451,7 +451,12 @@ function UploadPage() {
       method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd
     })
     const data = await res.json()
-    if (res.ok) { setCsvPreview(data.data); setMsg({ type: "ok", text: data.message }); setStep(2) }
+    if (res.ok) {
+      setCsvPreview(data.data)
+      const warn = data.warnings?.length ? ` ${data.warnings.join(" ")}` : ""
+      setMsg({ type: data.warnings?.length ? "warn" : "ok", text: data.message + warn })
+      setStep(2)
+    }
     else { setMsg({ type: "err", text: data.detail }) }
     setSaving(false)
   }

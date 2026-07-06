@@ -11,7 +11,7 @@ import os, io, json
 
 from database import get_db, init_db, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, MAScheduleSet, Feiertag, Notification, BilatData
 from calc import (
-    compute_zeg, compute_soll_tage, parse_csv_umsatz,
+    compute_zeg, compute_soll_tage, parse_csv_umsatz, parse_csv_umsatz_result,
     zeg_color, MONTH_NAMES_DE, MA_PATTERNS,
     is_employed_in_month,
 )
@@ -119,7 +119,8 @@ async def upload_csv(
     except:
         text = content.decode('latin-1')
 
-    umsatz_map = parse_csv_umsatz(text)
+    csv_result = parse_csv_umsatz_result(text, year=year, month=month)
+    umsatz_map = csv_result["by_name"]
     if not umsatz_map:
         raise HTTPException(
             status_code=400,
@@ -128,6 +129,26 @@ async def upload_csv(
 
     mas = db.query(MAStammdaten).all()
     from abwesenheiten_import import match_ma_name
+
+    # Plausibilität: Summe vs. Vormonate
+    warnings = list(csv_result.get("warnings") or [])
+    prev_rows = db.query(UmsatzData).filter(
+        UmsatzData.year == year,
+        UmsatzData.month < month,
+    ).all()
+    if prev_rows:
+        from collections import defaultdict
+        by_m = defaultdict(float)
+        for r in prev_rows:
+            by_m[r.month] += r.umsatz
+        if by_m:
+            med = sorted(by_m.values())[len(by_m) // 2]
+            new_total = sum(umsatz_map.values())
+            if med > 0 and new_total > med * 2.5:
+                warnings.append(
+                    f"Gesamtumsatz CHF {new_total:,.0f} ist ungewöhnlich hoch "
+                    f"(Median Vormonate: CHF {med:,.0f}). Bitte Monatsexport prüfen."
+                )
 
     resolved: dict[str, float] = {}
     unmatched: list[str] = []
@@ -163,10 +184,14 @@ async def upload_csv(
     msg = f"{inserted} MA-Umsätze für {MONTH_NAMES_DE[month]} {year} importiert"
     if unmatched:
         msg += f" — {len(unmatched)} nicht zugeordnet"
+    if warnings:
+        msg += " — " + " ".join(warnings)
     return {
         "message": msg,
         "data": resolved,
         "unmatched": unmatched,
+        "warnings": warnings,
+        "total_umsatz": round(sum(resolved.values()), 2),
     }
 
 # ── Abwesenheiten Excel Upload ────────────────────────────────────────────
@@ -362,7 +387,7 @@ def get_dashboard(
     ma_data_expanded = []
     for r in results:
         schedule = schedule_map.get(r["name"])
-        ma_bg = next((m.bg_pct for m in mas if m.name == r["name"]), r.get("bg_pct", 1.0))
+        ma_bg = r.get("bg_pct") or next((m.bg_pct for m in mas if m.name == r["name"]), 1.0)
         ma_data_expanded.extend(expand_ma_standort_rows(r, ma_bg, r["team"], schedule))
 
     team_summary = aggregate_team_summary(ma_data_expanded)

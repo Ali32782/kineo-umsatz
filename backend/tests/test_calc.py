@@ -12,6 +12,8 @@ from calc import (  # noqa: E402
     compute_soll_tage,
     zeg_color,
     parse_csv_umsatz,
+    parse_csv_umsatz_result,
+    parse_chf_amount,
     pattern_from_schedule,
     get_feiertage_sets,
     default_feiertage_entries,
@@ -49,6 +51,31 @@ def test_zeg_color():
 def test_parse_csv_umsatz():
     csv = "Name;Umsatz\nEmma.L;12'500.00\nSumme;999\n"
     assert parse_csv_umsatz(csv)["Emma.L"] == 12500.0
+
+
+def test_parse_csv_umsatz_filters_by_month_column():
+    csv = (
+        "Mitarbeiter;Monat;Umsatz\n"
+        "Emma L.;1;10'000.00\n"
+        "Emma L.;2;11'000.00\n"
+        "Emma L.;6;12'500.00\n"
+        "Emma L.;6;2'500.00\n"
+    )
+    result = parse_csv_umsatz_result(csv, year=2026, month=6)
+    assert result["by_name"]["Emma L."] == 15000.0
+    assert result["rows_skipped"] == 2
+
+
+def test_parse_csv_umsatz_warns_on_many_rows_without_month():
+    lines = ["Name;Umsatz"] + [f"Emma L.;5'000.00" for _ in range(6)]
+    result = parse_csv_umsatz_result("\n".join(lines), year=2026, month=6)
+    assert result["by_name"]["Emma L."] == 30000.0
+    assert any("Monatsexport" in w for w in result["warnings"])
+
+
+def test_parse_chf_amount_swiss_formats():
+    assert parse_chf_amount("1'234.56") == 1234.56
+    assert parse_chf_amount("1'234,56") == 1234.56
 
 
 def test_compute_soll_tage_emma_may():

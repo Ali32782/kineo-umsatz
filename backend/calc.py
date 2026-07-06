@@ -287,24 +287,234 @@ def compute_zeg(
         "zeg_c": zeg(prod_c),
     }
 
-def parse_csv_umsatz(content: str) -> dict:
-    """Parse the Kineo software CSV export → {ma_name: umsatz_total}"""
-    lines = content.strip().split('\n')
-    result = {}
-    for line in lines[1:]:  # skip header
-        parts = line.strip().split(';')
-        if len(parts) < 2:
+MONTH_NAMES_DE = {
+    1:"Januar",2:"Februar",3:"März",4:"April",5:"Mai",6:"Juni",
+    7:"Juli",8:"August",9:"September",10:"Oktober",11:"November",12:"Dezember"
+}
+
+_CSV_NAME_HEADERS = {
+    "name", "mitarbeiter", "mitarbeitende", "mitarbeitende/r", "therapeut",
+    "therapeut/in", "ma", "person", "bearbeiter",
+}
+_CSV_AMOUNT_HEADERS = {
+    "umsatz", "betrag", "total", "netto", "brutto", "amount", "revenue",
+    "umsatz chf", "betrag chf", "total chf",
+}
+_CSV_MONTH_HEADERS = {"monat", "month", "periode", "period", "monat nr", "monatnr"}
+_CSV_DATE_HEADERS = {"datum", "date", "buchungsdatum", "leistungsdatum"}
+_CSV_SKIP_NAMES = {"summe", "total", "gesamt", "subtotal", ""}
+_MONTH_NAME_LOOKUP = {
+    v.lower(): k for k, v in MONTH_NAMES_DE.items()
+}
+_MONTH_NAME_LOOKUP.update({
+    "jan": 1, "feb": 2, "mar": 3, "maerz": 3, "märz": 3, "apr": 4,
+    "mai": 5, "jun": 6, "juli": 7, "jul": 7, "aug": 8, "sep": 9,
+    "okt": 10, "nov": 11, "dez": 12,
+})
+
+
+def _norm_csv_header(value: str) -> str:
+    return (value or "").strip().lower().replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
+
+
+def parse_chf_amount(value: str) -> float:
+    """Schweizer Zahlenformat: 1'234.56 / 1'234,56 / 1234,50."""
+    s = (value or "").strip().replace("'", "").replace(" ", "").replace("CHF", "").replace("chf", "")
+    if not s:
+        raise ValueError("empty amount")
+    if "," in s and "." in s:
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            s = s.replace(",", "")
+    elif "," in s:
+        left, right = s.split(",", 1)
+        if len(right) <= 2 and right.isdigit():
+            s = f"{left}.{right}"
+        else:
+            s = s.replace(",", "")
+    return float(s)
+
+
+def _parse_month_cell(value, year: int | None, month: int | None) -> int | None:
+    """True/Monatsnummer wenn Zelle zum Zielmonat passt; None = nicht filterbar."""
+    if value is None or str(value).strip() == "":
+        return None
+    s = str(value).strip().lower()
+    if s.isdigit():
+        n = int(s)
+        if 1 <= n <= 12:
+            return n
+        return None
+    for key, num in _MONTH_NAME_LOOKUP.items():
+        if key in s:
+            return num
+    if len(s) >= 7 and s[4] == "-":
+        try:
+            y, m = int(s[:4]), int(s[5:7])
+            if year and y != year:
+                return -1
+            return m
+        except ValueError:
+            pass
+    if len(s) >= 7 and s[2] == ".":
+        try:
+            m, y = int(s[:2]), int(s[3:7])
+            if year and y != year:
+                return -1
+            return m
+        except ValueError:
+            pass
+    return None
+
+
+def _row_matches_target_month(
+    parts: list[str],
+    month_col: int | None,
+    date_col: int | None,
+    year: int | None,
+    month: int | None,
+) -> bool:
+    if month is None:
+        return True
+    if month_col is not None and month_col < len(parts):
+        m = _parse_month_cell(parts[month_col], year, month)
+        if m == -1:
+            return False
+        if m is not None:
+            return m == month
+    if date_col is not None and date_col < len(parts):
+        raw = parts[date_col].strip()[:10]
+        try:
+            if len(raw) >= 7 and raw[4] == "-":
+                y, mo = int(raw[:4]), int(raw[5:7])
+                return (not year or y == year) and mo == month
+            if len(raw) >= 7 and raw[2] == ".":
+                mo, y = int(raw[:2]), int(raw[3:7])
+                return (not year or y == year) and mo == month
+        except ValueError:
+            pass
+    return month_col is None and date_col is None
+
+
+def _detect_csv_columns(header: list[str], rows: list[list[str]]) -> tuple[int, int, int | None, int | None]:
+    """Finde Name-, Betrag-, Monats- und Datumsspalte."""
+    norm = [_norm_csv_header(h) for h in header]
+    name_col = next((i for i, h in enumerate(norm) if h in _CSV_NAME_HEADERS), 0)
+    amount_col = next((i for i, h in enumerate(norm) if h in _CSV_AMOUNT_HEADERS), None)
+    month_col = next((i for i, h in enumerate(norm) if h in _CSV_MONTH_HEADERS), None)
+    date_col = next((i for i, h in enumerate(norm) if h in _CSV_DATE_HEADERS), None)
+
+    if amount_col is None:
+        # Fallback: erste Spalte mit parsebarem CHF-Betrag (nicht Name/Monat)
+        for i in range(len(header)):
+            if i == name_col or i == month_col or i == date_col:
+                continue
+            hits = 0
+            for row in rows[:20]:
+                if i >= len(row):
+                    continue
+                try:
+                    parse_chf_amount(row[i])
+                    hits += 1
+                except ValueError:
+                    pass
+            if hits >= max(1, len(rows[:20]) // 2):
+                amount_col = i
+                break
+    if amount_col is None:
+        amount_col = 1 if len(header) > 1 else 0
+
+    if month_col is None and rows:
+        for i in range(len(header)):
+            if i in (name_col, amount_col, date_col):
+                continue
+            nums = []
+            for row in rows:
+                if i >= len(row):
+                    continue
+                m = _parse_month_cell(row[i], None, None)
+                if m is not None and 1 <= m <= 12:
+                    nums.append(m)
+            if len(nums) >= max(3, len(rows) * 0.5) and len(set(nums)) > 1:
+                month_col = i
+                break
+
+    return name_col, amount_col, month_col, date_col
+
+
+def parse_csv_umsatz(
+    content: str,
+    year: int | None = None,
+    month: int | None = None,
+) -> dict:
+    """Parse Kineo-CSV → {csv_name: umsatz_total}. Optional nur Zielmonat."""
+    return parse_csv_umsatz_result(content, year=year, month=month)["by_name"]
+
+
+def parse_csv_umsatz_result(
+    content: str,
+    year: int | None = None,
+    month: int | None = None,
+) -> dict:
+    """
+    Parse Kineo-CSV mit Spaltenerkennung und Monatsfilter.
+    Mehrzeilige Exporte (z. B. je Monat eine Zeile) werden nur für den Zielmonat summiert.
+    """
+    lines = [ln for ln in content.strip().splitlines() if ln.strip()]
+    warnings: list[str] = []
+    if len(lines) < 2:
+        return {"by_name": {}, "warnings": warnings, "rows_used": 0, "rows_skipped": 0, "total": 0.0}
+
+    header = [p.strip() for p in lines[0].split(";")]
+    raw_rows = [[p.strip() for p in ln.split(";")] for ln in lines[1:]]
+    name_col, amount_col, month_col, date_col = _detect_csv_columns(header, raw_rows)
+
+    by_name: dict[str, float] = {}
+    rows_used = 0
+    rows_skipped = 0
+    unfiltered_names: dict[str, int] = {}
+
+    for parts in raw_rows:
+        if len(parts) <= max(name_col, amount_col):
             continue
-        name = parts[0].strip()
-        if name in ('Summe', ''):
+        name = parts[name_col].strip()
+        if _norm_csv_header(name) in _CSV_SKIP_NAMES:
+            continue
+        unfiltered_names[name] = unfiltered_names.get(name, 0) + 1
+        if not _row_matches_target_month(parts, month_col, date_col, year, month):
+            rows_skipped += 1
             continue
         try:
-            amount_str = parts[1].strip().replace("'", "").replace(",", ".")
-            amount = float(amount_str)
-            result[name] = amount
+            amount = parse_chf_amount(parts[amount_col])
         except (ValueError, IndexError):
             continue
-    return result
+        if amount <= 0:
+            continue
+        by_name[name] = by_name.get(name, 0) + amount
+        rows_used += 1
+
+    if month and rows_skipped > 0 and rows_used > 0:
+        warnings.append(
+            f"{rows_skipped} Zeilen aus anderen Monaten ignoriert — nur {MONTH_NAMES_DE.get(month, month)} gezählt."
+        )
+    elif month and rows_used > 0 and month_col is None and date_col is None:
+        dup = {n: c for n, c in unfiltered_names.items() if c >= 3}
+        if dup:
+            max_dup = max(dup.values())
+            warnings.append(
+                f"Achtung: bis zu {max_dup} Zeilen pro Person ohne Monatsspalte — "
+                "bitte Monatsexport aus der Software verwenden, sonst werden alle Zeilen summiert."
+            )
+
+    total = round(sum(by_name.values()), 2)
+    return {
+        "by_name": by_name,
+        "warnings": warnings,
+        "rows_used": rows_used,
+        "rows_skipped": rows_skipped,
+        "total": total,
+    }
 
 def zeg_color(zeg_b: float | None) -> str:
     if zeg_b is None:
@@ -314,11 +524,6 @@ def zeg_color(zeg_b: float | None) -> str:
     if zeg_b >= 0.85:
         return "amber"
     return "red"
-
-MONTH_NAMES_DE = {
-    1:"Januar",2:"Februar",3:"März",4:"April",5:"Mai",6:"Juni",
-    7:"Juli",8:"August",9:"September",10:"Oktober",11:"November",12:"Dezember"
-}
 
 HOLIDAY_NAMES = {
     (1, 1): "Neujahr", (1, 2): "Berchtoldstag",
