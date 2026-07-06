@@ -64,9 +64,15 @@ function ImportStatusPanel({ year, highlightMonth, onMonthClick, reloadKey = 0, 
         </div>
         {status.storage && user?.role !== "teamlead" && (
           <div style={{ fontSize: 11, color: "#666", textAlign: "right", lineHeight: 1.5 }}>
-            <div>Datenbank: {status.storage.database_size_kb} KB</div>
-            {status.storage.on_render && !status.storage.disk_configured && (
-              <div style={{ color: "#c0392b", fontWeight: 600 }}>⚠ Kein persistenter Speicher (/app/data)</div>
+            {status.storage.backend === "postgresql" ? (
+              <div style={{ color: "#1a7a1a", fontWeight: 600 }}>✓ PostgreSQL — Daten persistent</div>
+            ) : (
+              <>
+                <div>Datenbank: {status.storage.database_size_kb} KB (SQLite)</div>
+                {status.storage.on_render && !status.storage.persistent && (
+                  <div style={{ color: "#c0392b", fontWeight: 600 }}>⚠ Daten gehen bei Deploy verloren</div>
+                )}
+              </>
             )}
           </div>
         )}

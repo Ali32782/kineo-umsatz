@@ -9,7 +9,7 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 import os, io, json
 
-from database import get_db, init_db, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, MAScheduleSet, Feiertag, Notification, BilatData
+from database import get_db, init_db, get_storage_info, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, MAScheduleSet, Feiertag, Notification, BilatData
 from calc import (
     compute_zeg, compute_soll_tage, parse_csv_umsatz, parse_csv_umsatz_result,
     zeg_color, MONTH_NAMES_DE, MA_PATTERNS,
@@ -708,16 +708,7 @@ def get_import_status(
 
     storage = None
     if current_user.role in ("ceo", "bd"):
-        data_dir = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "../data"))
-        db_path = os.path.join(data_dir, "kineo.db")
-        exists = os.path.isfile(db_path)
-        storage = {
-            "data_dir": data_dir,
-            "database_exists": exists,
-            "database_size_kb": round(os.path.getsize(db_path) / 1024, 1) if exists else 0,
-            "on_render": bool(os.environ.get("RENDER")),
-            "disk_configured": data_dir.rstrip("/") == "/app/data",
-        }
+        storage = get_storage_info()
 
     return {"year": year, "months": months_out, "storage": storage}
 
@@ -1090,15 +1081,10 @@ def delete_feiertag(year: int, date_str: str, db: Session = Depends(get_db), cur
 
 @app.get("/api/health")
 def health():
-    data_dir = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "../data"))
-    db_path = os.path.join(data_dir, "kineo.db")
+    storage = get_storage_info()
     return {
         "status": "ok",
         "app": "Kineo Umsatzanalyse",
         "version": "1.0.0",
-        "storage": {
-            "data_dir": data_dir,
-            "database_exists": os.path.isfile(db_path),
-            "on_render": bool(os.environ.get("RENDER")),
-        },
+        "storage": storage,
     }

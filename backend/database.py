@@ -5,9 +5,28 @@ from datetime import datetime
 import os
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "../data"))
-os.makedirs(DATA_DIR, exist_ok=True)
-DATABASE_URL = f"sqlite:///{os.path.join(DATA_DIR, 'kineo.db')}"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+
+
+def _resolve_database_url() -> tuple[str, bool]:
+    raw = os.environ.get("DATABASE_URL", "").strip()
+    if raw:
+        url = raw
+        if url.startswith("postgres://"):
+            url = "postgresql+psycopg2://" + url[len("postgres://"):]
+        elif url.startswith("postgresql://") and "+" not in url.split("://", 1)[0]:
+            url = "postgresql+psycopg2://" + url[len("postgresql://"):]
+        return url, False
+    os.makedirs(DATA_DIR, exist_ok=True)
+    return f"sqlite:///{os.path.join(DATA_DIR, 'kineo.db')}", True
+
+
+DATABASE_URL, IS_SQLITE = _resolve_database_url()
+
+if IS_SQLITE:
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -158,8 +177,35 @@ def get_db():
     finally:
         db.close()
 
+
+def get_storage_info() -> dict:
+    on_render = bool(os.environ.get("RENDER"))
+    if IS_SQLITE:
+        db_path = os.path.join(DATA_DIR, "kineo.db")
+        exists = os.path.isfile(db_path)
+        return {
+            "backend": "sqlite",
+            "persistent": False,
+            "data_dir": DATA_DIR,
+            "database_exists": exists,
+            "database_size_kb": round(os.path.getsize(db_path) / 1024, 1) if exists else 0,
+            "on_render": on_render,
+            "disk_configured": DATA_DIR.rstrip("/") == "/app/data",
+        }
+    return {
+        "backend": "postgresql",
+        "persistent": True,
+        "on_render": on_render,
+    }
+
+
 def migrate_schema():
-    """Lightweight SQLite migrations for existing databases."""
+    """Lightweight migrations for existing SQLite databases."""
+    if not IS_SQLITE:
+        migrate_legacy_schedule_sets()
+        _backfill_user_emails()
+        return
+
     from sqlalchemy import inspect, text
     inspector = inspect(engine)
     if inspector.has_table("bilat_data"):
@@ -199,7 +245,7 @@ def migrate_schema():
                 conn.execute(text("ALTER TABLE users ADD COLUMN reset_token VARCHAR"))
             if "reset_token_expires" not in cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN reset_token_expires DATETIME"))
-        _backfill_user_emails()
+    _backfill_user_emails()
 
 def _backfill_user_emails():
     """Bekannte Kineo-E-Mails für Passwort-Reset nachtragen."""

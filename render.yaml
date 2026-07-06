@@ -1,3 +1,9 @@
+databases:
+  - name: kineo-db
+    databaseName: kineo
+    user: kineo
+    plan: free
+
 services:
   - type: web
     name: kineo-backend
@@ -10,10 +16,12 @@ services:
         value: 3.11.0
       - key: ENV
         value: production
-      - key: DATA_DIR
-        value: /app/data
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kineo-db
+          property: connectionString
       - key: EXPORTS_DIR
-        value: /app/exports
+        value: /tmp/exports
       - key: SECRET_KEY
         generateValue: true
       - key: RESEND_API_KEY
@@ -22,10 +30,8 @@ services:
         value: kineo@kineo.swiss
       - key: CEO_EMAILS
         value: ali.peters@kineo.swiss,sereina.urech@kineo.swiss
-    disk:
-      name: kineo-data
-      mountPath: /app/data
-      sizeGB: 1
+      - key: APP_BASE_URL
+        value: https://kineo-umsatz-1.onrender.com
 
   - type: web
     name: kineo-frontend
