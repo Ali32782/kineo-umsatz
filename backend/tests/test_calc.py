@@ -275,6 +275,24 @@ def test_is_employed_in_month_inactive_without_austritt():
     assert is_employed_in_month("2026-01-01", None, 2026, 3, False) is False
 
 
+def test_departed_ma_employment_months():
+    from database import _backfill_departed_mas, MAStammdaten
+
+    _backfill_departed_mas()
+    db = SessionLocal()
+    try:
+        felica = db.query(MAStammdaten).filter_by(name="Felica K.").first()
+        eve = db.query(MAStammdaten).filter_by(name="Eve.S").first()
+        assert felica and felica.austritt == "2026-03-31"
+        assert eve and eve.austritt == "2026-06-30"
+        assert is_employed_in_month(felica.eintritt, felica.austritt, 2026, 3, felica.is_active)
+        assert not is_employed_in_month(felica.eintritt, felica.austritt, 2026, 4, felica.is_active)
+        assert is_employed_in_month(eve.eintritt, eve.austritt, 2026, 6, eve.is_active)
+        assert not is_employed_in_month(eve.eintritt, eve.austritt, 2026, 7, eve.is_active)
+    finally:
+        db.close()
+
+
 def test_compute_soll_tage_after_austritt():
     db = SessionLocal()
     try:

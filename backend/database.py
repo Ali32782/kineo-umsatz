@@ -268,6 +268,43 @@ def _backfill_user_emails():
     finally:
         db.close()
 
+DEPARTED_MAS = [
+    {"name": "Andreas.N", "display_name": "Andreas N.", "team": "Wipkingen", "austritt": "2026-05-31"},
+    {"name": "Annika.H", "display_name": "Annika H.", "team": "Seefeld", "austritt": "2026-05-31"},
+    {"name": "Theresa.B", "display_name": "Theresa B.", "team": "Thalwil", "austritt": "2026-05-31"},
+    {"name": "Elisabeth.M", "display_name": "Elisabeth M.", "team": "Seefeld", "austritt": "2026-02-28"},
+    {"name": "Eva-Maria.Z", "display_name": "Eva-Maria Z.", "team": "Seefeld", "austritt": "2026-02-28"},
+    {"name": "Felica K.", "display_name": "Felica K.", "team": "Wipkingen", "austritt": "2026-03-31"},
+    {"name": "Eve.S", "display_name": "Eve S.", "team": "Stauffacher", "austritt": "2026-06-30"},
+]
+
+
+def _backfill_departed_mas():
+    """Ausgetretene MA aus CSV — für Jan–Mai Umsätze im Dashboard."""
+    db = SessionLocal()
+    try:
+        for spec in DEPARTED_MAS:
+            ma = db.query(MAStammdaten).filter_by(name=spec["name"]).first()
+            if ma:
+                ma.austritt = spec["austritt"]
+                ma.is_active = False
+                if not ma.eintritt:
+                    ma.eintritt = "2026-01-01"
+            else:
+                db.add(MAStammdaten(
+                    name=spec["name"],
+                    display_name=spec["display_name"],
+                    team=spec.get("team"),
+                    role="therapeut",
+                    bg_pct=1.0,
+                    eintritt="2026-01-01",
+                    austritt=spec["austritt"],
+                    is_active=False,
+                ))
+        db.commit()
+    finally:
+        db.close()
+
 def migrate_legacy_schedule_sets():
     """Bestehende ma_schedule-Einträge → Version «gültig ab 2026-01»."""
     db = SessionLocal()
@@ -359,6 +396,7 @@ def init_db():
     migrate_schedule_halbtag_units()
     seed_initial_data()
     seed_schedules_from_excel()
+    _backfill_departed_mas()
 
 def seed_initial_data():
     """Seed users and MA Stammdaten on first run"""
@@ -408,6 +446,12 @@ def seed_initial_data():
             MAStammdaten(name="Sonia.M", display_name="Sonia M.", team="Thalwil", role="therapeut", bg_pct=1.0, eintritt="2026-01-01"),
             MAStammdaten(name="Valerio.S", display_name="Valerio S.", team="Escher Wyss", role="therapeut", bg_pct=0.6, eintritt="2026-05-01"),
         ]
+        for spec in DEPARTED_MAS:
+            mas.append(MAStammdaten(
+                name=spec["name"], display_name=spec["display_name"], team=spec.get("team"),
+                role="therapeut", bg_pct=1.0, eintritt="2026-01-01",
+                austritt=spec["austritt"], is_active=False,
+            ))
         db.add_all(mas)
 
     db.commit()
