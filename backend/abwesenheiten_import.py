@@ -30,6 +30,8 @@ EXCEL_NAME_ALIASES = {
     "andrina kümin": "Andrina.K",
     "pablo.m.a": "Pablo.M",
     "pablo m a": "Pablo.M",
+    "valerio.l.s": "Valerio.S",
+    "valerio l s": "Valerio.S",
 }
 
 
@@ -103,6 +105,14 @@ def match_ma_name(excel_name: str, mas, lookup: dict[str, str] | None = None) ->
         return lookup[key]
     if key in EXCEL_NAME_ALIASES:
         return EXCEL_NAME_ALIASES[key]
+
+    # CSV-Kürzel mit Mittelinitial: Valerio.L.S → Valerio.S
+    dot_parts = [p for p in excel_name.strip().split(".") if p]
+    if len(dot_parts) >= 3:
+        short = f"{dot_parts[0]}.{dot_parts[-1]}"
+        for ma in mas:
+            if ma.name.lower() == short.lower():
+                return ma.name
 
     parts = key.split()
     if len(parts) < 2:

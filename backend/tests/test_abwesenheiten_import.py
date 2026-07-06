@@ -41,6 +41,7 @@ def test_match_ma_names():
         mas = db.query(MAStammdaten).all()
         assert match_ma_name("Clara Benning", mas) == "Clara.B"
         assert match_ma_name("Valerio Lo Sasso", mas) == "Valerio.S"
+        assert match_ma_name("Valerio.L.S", mas) == "Valerio.S"
         assert match_ma_name("Eva Monika Danko", mas) == "Eva.D"
         assert match_ma_name("Sonia Montero Cuevas", mas) == "Sonia.M"
     finally:
