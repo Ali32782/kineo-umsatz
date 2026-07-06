@@ -28,6 +28,8 @@ EXCEL_NAME_ALIASES = {
     "joëlle ramseier": "Joëlle.R",
     "andrina kumin": "Andrina.K",
     "andrina kümin": "Andrina.K",
+    "pablo.m.a": "Pablo.M",
+    "pablo m a": "Pablo.M",
 }
 
 

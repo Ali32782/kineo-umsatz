@@ -297,9 +297,11 @@ _CSV_NAME_HEADERS = {
     "therapeut/in", "ma", "person", "bearbeiter",
 }
 _CSV_AMOUNT_HEADERS = {
-    "umsatz", "betrag", "total", "netto", "brutto", "amount", "revenue",
-    "umsatz chf", "betrag chf", "total chf",
+    "umsatz", "total", "netto", "brutto", "amount", "revenue",
+    "umsatz chf", "total chf",
 }
+# «Betrag» in Kineo-Pivot-CSV = Jahressumme — nicht als Monatsumsatz verwenden
+_CSV_YTD_HEADERS = {"betrag", "betrag chf", "summe", "jahr", "ytd", "total jahr"}
 _CSV_MONTH_HEADERS = {"monat", "month", "periode", "period", "monat nr", "monatnr"}
 _CSV_DATE_HEADERS = {"datum", "date", "buchungsdatum", "leistungsdatum"}
 _CSV_SKIP_NAMES = {"summe", "total", "gesamt", "subtotal", ""}
@@ -314,7 +316,48 @@ _MONTH_NAME_LOOKUP.update({
 
 
 def _norm_csv_header(value: str) -> str:
-    return (value or "").strip().lower().replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
+    return (
+        (value or "")
+        .replace("\xa0", " ")
+        .strip()
+        .lower()
+        .replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+    )
+
+
+def _header_month_year(cell: str) -> tuple[int, int] | None:
+    """Spaltenkopf wie «Jun 2026» / «Jun\xa02026» → (month, year)."""
+    raw = _norm_csv_header(cell)
+    if not raw:
+        return None
+    year = None
+    for tok in raw.split():
+        if tok.isdigit() and 2000 <= int(tok) <= 2100:
+            year = int(tok)
+            break
+    month_num = _parse_month_cell(raw, None, None)
+    if month_num and year:
+        return month_num, year
+    return None
+
+
+def _find_pivot_month_columns(header: list[str]) -> list[tuple[int, int, int]]:
+    """Alle (col_index, month, year) aus Pivot-Köpfen «Jan 2026» …"""
+    found = []
+    for i, h in enumerate(header):
+        parsed = _header_month_year(h)
+        if parsed:
+            found.append((i, parsed[0], parsed[1]))
+    return found
+
+
+def _find_pivot_amount_column(header: list[str], year: int, month: int) -> int | None:
+    for col, m, y in _find_pivot_month_columns(header):
+        if m == month and y == year:
+            return col
+    return None
 
 
 def parse_chf_amount(value: str) -> float:
@@ -397,18 +440,39 @@ def _row_matches_target_month(
     return month_col is None and date_col is None
 
 
-def _detect_csv_columns(header: list[str], rows: list[list[str]]) -> tuple[int, int, int | None, int | None]:
+def _detect_csv_columns(
+    header: list[str],
+    rows: list[list[str]],
+    year: int | None = None,
+    month: int | None = None,
+) -> tuple[int, int, int | None, int | None]:
     """Finde Name-, Betrag-, Monats- und Datumsspalte."""
     norm = [_norm_csv_header(h) for h in header]
     name_col = next((i for i, h in enumerate(norm) if h in _CSV_NAME_HEADERS), 0)
+    pivot_cols = _find_pivot_month_columns(header)
+
+    # Kineo Taxpunkte-Export: Name;Betrag(Jahr);Jan 2026;…;Jun 2026;…
+    if year and month and pivot_cols:
+        pivot_amount = _find_pivot_amount_column(header, year, month)
+        if pivot_amount is not None:
+            return name_col, pivot_amount, None, None
+
     amount_col = next((i for i, h in enumerate(norm) if h in _CSV_AMOUNT_HEADERS), None)
+    if amount_col is None and not pivot_cols:
+        amount_col = next(
+            (i for i, h in enumerate(norm) if h in _CSV_YTD_HEADERS and i != name_col),
+            None,
+        )
     month_col = next((i for i, h in enumerate(norm) if h in _CSV_MONTH_HEADERS), None)
     date_col = next((i for i, h in enumerate(norm) if h in _CSV_DATE_HEADERS), None)
 
     if amount_col is None:
         # Fallback: erste Spalte mit parsebarem CHF-Betrag (nicht Name/Monat)
+        pivot_indices = {c for c, _, _ in pivot_cols}
         for i in range(len(header)):
-            if i == name_col or i == month_col or i == date_col:
+            if i == name_col or i == month_col or i == date_col or i in pivot_indices:
+                continue
+            if norm[i] in _CSV_YTD_HEADERS and pivot_cols:
                 continue
             hits = 0
             for row in rows[:20]:
@@ -468,7 +532,15 @@ def parse_csv_umsatz_result(
 
     header = [p.strip() for p in lines[0].split(";")]
     raw_rows = [[p.strip() for p in ln.split(";")] for ln in lines[1:]]
-    name_col, amount_col, month_col, date_col = _detect_csv_columns(header, raw_rows)
+    name_col, amount_col, month_col, date_col = _detect_csv_columns(
+        header, raw_rows, year=year, month=month,
+    )
+    pivot_cols = _find_pivot_month_columns(header)
+    if year and month and pivot_cols and _find_pivot_amount_column(header, year, month) is not None:
+        warnings.append(
+            f"Monatsspalte «{MONTH_NAMES_DE.get(month, month)} {year}» verwendet "
+            f"(nicht «Betrag» = Jahressumme)."
+        )
 
     by_name: dict[str, float] = {}
     rows_used = 0

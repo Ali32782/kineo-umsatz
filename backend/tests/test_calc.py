@@ -1,6 +1,7 @@
 import os
 import tempfile
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -76,6 +77,19 @@ def test_parse_csv_umsatz_warns_on_many_rows_without_month():
 def test_parse_chf_amount_swiss_formats():
     assert parse_chf_amount("1'234.56") == 1234.56
     assert parse_chf_amount("1'234,56") == 1234.56
+
+
+def test_parse_kineo_pivot_csv_uses_month_column_not_ytd_betrag():
+    """Kineo Taxpunkte-Export: Betrag=Jahr, Jun 2026=Monat."""
+    fixture = Path(__file__).resolve().parent / "fixtures" / "kineo_taxpunkte_pivot_2026.csv"
+    if not fixture.exists():
+        return
+    content = fixture.read_text(encoding="utf-8-sig")
+    result = parse_csv_umsatz_result(content, year=2026, month=6)
+    assert abs(result["total"] - 294_940.67) < 1
+    assert result["by_name"]["Andrina.K"] == 16043.84
+    assert result["by_name"]["Emma.L"] == 24241.2
+    assert any("Jahressumme" in w or "Juni" in w for w in result["warnings"])
 
 
 def test_compute_soll_tage_emma_may():
