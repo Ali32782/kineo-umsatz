@@ -289,6 +289,13 @@ def test_departed_ma_employment_months():
         assert not is_employed_in_month(felica.eintritt, felica.austritt, 2026, 4, felica.is_active)
         assert is_employed_in_month(eve.eintritt, eve.austritt, 2026, 6, eve.is_active)
         assert not is_employed_in_month(eve.eintritt, eve.austritt, 2026, 7, eve.is_active)
+
+        march_mas = [
+            m.name for m in db.query(MAStammdaten).all()
+            if is_employed_in_month(m.eintritt, m.austritt, 2026, 3, m.is_active)
+        ]
+        assert "Felica K." in march_mas
+        assert "Andreas.N" in march_mas
     finally:
         db.close()
 

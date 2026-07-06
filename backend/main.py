@@ -136,15 +136,26 @@ def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
 # ── MA Stammdaten ─────────────────────────────────────────────────────────
 @app.get("/api/ma")
 def get_ma_list(
+    year: Optional[int] = None,
+    month: Optional[int] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-    mas = db.query(MAStammdaten).filter(MAStammdaten.is_active == True).all()
-    # Filter by team for teamleads
+    all_mas = db.query(MAStammdaten).all()
+    if year and month:
+        mas = [
+            m for m in all_mas
+            if is_employed_in_month(m.eintritt, m.austritt, year, month, m.is_active)
+        ]
+    else:
+        mas = [m for m in all_mas if m.is_active]
     if current_user.role == "teamlead" and current_user.team:
         mas = [m for m in mas if m.team == current_user.team]
-    return [{"name": m.name, "display_name": m.display_name, "team": m.team,
-              "role": m.role, "bg_pct": m.bg_pct, "eintritt": m.eintritt} for m in mas]
+    return [{
+        "name": m.name, "display_name": m.display_name, "team": m.team,
+        "role": m.role, "bg_pct": m.bg_pct, "eintritt": m.eintritt,
+        "austritt": m.austritt, "is_active": m.is_active,
+    } for m in mas]
 
 # ── CSV Upload ────────────────────────────────────────────────────────────
 @app.post("/api/upload-csv")

@@ -637,7 +637,9 @@ function UploadPage() {
   const [statusKey, setStatusKey] = useState(0)
   const months = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"]
 
-  useEffect(() => { api("/api/ma").then(setMaList).catch(console.error) }, [])
+  useEffect(() => {
+    api(`/api/ma?year=${year}&month=${month}`).then(setMaList).catch(console.error)
+  }, [year, month])
   useEffect(() => {
     const fetchId = ++inputsFetchRef.current
     setImportedMAs(new Set())
@@ -876,8 +878,11 @@ function UploadPage() {
                 {maList.map((ma, i) => {
                   const imported = importedMAs.has(ma.name)
                   return (
-                  <tr key={ma.name} style={{ background: i%2===0?"white":"#F8F9FA" }}>
-                    <td style={{ padding: "8px 12px", fontWeight: 600, whiteSpace: "nowrap" }}>{ma.display_name}</td>
+                  <tr key={ma.name} style={{ background: i%2===0?"white":"#F8F9FA", opacity: ma.austritt ? 0.85 : 1 }}>
+                    <td style={{ padding: "8px 12px", fontWeight: 600, whiteSpace: "nowrap" }}>
+                      {ma.display_name}
+                      {ma.austritt && <span style={{ marginLeft: 6, fontSize: 10, color: "#999" }}>(ausgetreten)</span>}
+                    </td>
                     <td style={{ padding: "8px 12px", color: "#888", fontSize: 11 }}>{ma.team}</td>
                     <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"ferien_t","", "0.5", imported)}</td>
                     <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"kurs_h","")}</td>
