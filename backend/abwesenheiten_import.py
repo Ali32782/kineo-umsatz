@@ -11,11 +11,8 @@ from openpyxl import load_workbook
 
 FERIEN_ARTEN = {
     "urlaub",
-    "umzug",
-    "gleitzeitsaldo bezug",
-    "gleitzeit",
+    "unbezahlter urlaub",
     "ferien",
-    "bezug gleitzeitsaldo",
 }
 KRANK_ARTEN = {"krankheit", "krank", "unfall", "unfall krankheit"}
 
@@ -140,9 +137,9 @@ def match_ma_name(excel_name: str, mas, lookup: dict[str, str] | None = None) ->
 
 def classify_art(art: str) -> str | None:
     a = _norm(art)
-    if a in KRANK_ARTEN or "krank" in a:
+    if a in KRANK_ARTEN or "krankheit" in a:
         return "krank_t"
-    if a in FERIEN_ARTEN or "urlaub" in a or "gleitzeit" in a or "umzug" in a:
+    if a in FERIEN_ARTEN:
         return "ferien_t"
     return None
 

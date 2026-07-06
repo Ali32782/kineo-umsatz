@@ -833,7 +833,8 @@ function UploadPage() {
             <p style={{ margin: "0 0 12px", fontSize: 12, color: "#666", lineHeight: 1.5 }}>
               HR-Export mit Spalten <em>Mitarbeitende, Abwesenheitsart, Von, Bis, Halber Tag</em>.
               Die ganze Jahresliste auf einmal hochladen — Ferien & Krank werden automatisch pro Monat verteilt.
-              Urlaub, Gleitzeit und Umzug → Ferien (T); Krankheit → Krank (T).
+              Nur <em>Urlaub</em> (inkl. unbezahlt) → Ferien (T); <em>Krankheit</em> → Krank (T).
+              Gleitzeit, Umzug, Hochzeit usw. werden ignoriert.
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
               <input type="file" accept=".xlsx,.xlsm" onChange={e => { setAbFile(e.target.files[0]); setAbPreview(null) }} style={{ fontSize: 12 }} />

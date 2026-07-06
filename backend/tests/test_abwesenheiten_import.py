@@ -24,9 +24,11 @@ def setup_module():
 
 def test_classify_art():
     assert classify_art("Urlaub") == "ferien_t"
+    assert classify_art("Unbezahlter Urlaub") == "ferien_t"
     assert classify_art("Krankheit") == "krank_t"
-    assert classify_art("Gleitzeitsaldo Bezug") == "ferien_t"
-    assert classify_art("Umzug") == "ferien_t"
+    assert classify_art("Gleitzeitsaldo Bezug") is None
+    assert classify_art("Umzug") is None
+    assert classify_art("Eigene Hochzeit / Hochzeit von Kindern") is None
 
 
 def test_weekdays_in_month_clips_range():
