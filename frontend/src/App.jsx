@@ -1202,6 +1202,8 @@ function AdminPage() {
   const [feiertage, setFeiertage] = useState([])
   const [editMA, setEditMA] = useState(null)
   const [scheduleMA, setScheduleMA] = useState(null)
+  const [scheduleMAMeta, setScheduleMAMeta] = useState(null)
+  const [scheduleLoading, setScheduleLoading] = useState(false)
   const [schedule, setSchedule] = useState([])
   const [scheduleValidFrom, setScheduleValidFrom] = useState("")
   const [scheduleVersions, setScheduleVersions] = useState([])
@@ -1218,17 +1220,36 @@ function AdminPage() {
   useEffect(() => { loadMAs() }, [])
   useEffect(() => { if (tab === "feiertage") loadFeiertage() }, [feiertagYear, tab])
 
+  const scheduleDefaultFrom = (ma) => {
+    if (ma && !ma.is_active) {
+      return ma.eintritt?.slice(0, 7) || "2026-01"
+    }
+    return `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`
+  }
+
   const loadSchedule = async (name, editYM = "") => {
-    const url = editYM
-      ? `/api/admin/schedule/${name}?year=${editYM.split("-")[0]}&month=${+editYM.split("-")[1]}`
-      : `/api/admin/schedule/${name}`
-    const res = await api(url)
-    setSchedule(res.days || res)
-    setScheduleValidFrom(res.valid_from || `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`)
-    setScheduleVersions(res.versions || [])
-    setScheduleScope(editYM ? "month" : (res.scope || "from"))
-    setScheduleEditYM(editYM)
+    const ma = mas.find(m => m.name === name)
     setScheduleMA(name)
+    setScheduleMAMeta(ma || null)
+    setScheduleLoading(true)
+    try {
+      const enc = encodeURIComponent(name)
+      const url = editYM
+        ? `/api/admin/schedule/${enc}?year=${editYM.split("-")[0]}&month=${+editYM.split("-")[1]}`
+        : `/api/admin/schedule/${enc}`
+      const res = await api(url)
+      setSchedule(res.days || res)
+      setScheduleValidFrom(res.valid_from || scheduleDefaultFrom(ma))
+      setScheduleVersions(res.versions || [])
+      setScheduleScope(editYM ? "month" : (res.scope || "from"))
+      setScheduleEditYM(editYM)
+    } catch (e) {
+      setMsg({ type: "err", text: e.message })
+      setScheduleMA(null)
+      setScheduleMAMeta(null)
+    } finally {
+      setScheduleLoading(false)
+    }
   }
 
   const saveSchedule = async () => {
@@ -1241,24 +1262,27 @@ function AdminPage() {
           days: schedule,
         }
       : { scope: "from", valid_from: scheduleValidFrom, days: schedule }
-    const res = await api(`/api/admin/schedule/${scheduleMA}`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    })
-    setMsg({type:"ok", text: res.message || "Arbeitstag-Muster gespeichert"})
-    setScheduleMA(null)
-    setScheduleEditYM("")
+    try {
+      const res = await api(`/api/admin/schedule/${encodeURIComponent(scheduleMA)}`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      })
+      setMsg({ type: "ok", text: res.message || "Arbeitstag-Muster gespeichert" })
+      await loadSchedule(scheduleMA, scheduleScope === "month" ? scheduleEditYM : "")
+    } catch (e) {
+      setMsg({ type: "err", text: e.message })
+    }
   }
 
   const toggleMA = async (name) => {
-    await api(`/api/admin/ma/${name}/toggle`, {method:"PATCH"})
+    await api(`/api/admin/ma/${encodeURIComponent(name)}/toggle`, { method: "PATCH" })
     loadMAs()
   }
 
   const saveMA = async (isNew=false) => {
     const data = isNew ? newMA : editMA
     const method = isNew ? "POST" : "PUT"
-    const url = isNew ? "/api/admin/ma" : `/api/admin/ma/${editMA.name}`
+    const url = isNew ? "/api/admin/ma" : `/api/admin/ma/${encodeURIComponent(editMA.name)}`
     try {
       await api(url, {method, body:JSON.stringify(data)})
       setMsg({type:"ok",text:"Gespeichert"}); loadMAs()
@@ -1412,10 +1436,21 @@ function AdminPage() {
             <div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
                 <h4 style={{ fontFamily: CD.fontDisplay,margin:0,color:CD.primary,display:"flex",alignItems:"center",gap:8}}>
-                  <Calendar size={18} /> {scheduleMA}
+                  <Calendar size={18} /> {scheduleMAMeta?.display_name || scheduleMA}
+                  {scheduleMAMeta && !scheduleMAMeta.is_active && (
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#B8860B" }}>(ausgetreten)</span>
+                  )}
                 </h4>
-                <button style={btn("#EEE","#333")} onClick={()=>{setScheduleMA(null);setScheduleEditYM("")}}>← Zurück</button>
+                <button style={btn("#EEE","#333")} onClick={()=>{setScheduleMA(null);setScheduleMAMeta(null);setScheduleEditYM("")}}>← Zurück</button>
               </div>
+              {scheduleMAMeta && !scheduleMAMeta.is_active && (
+                <div style={{ marginBottom: 16, padding: "12px 16px", background: "#FFF8F0", border: "1px solid #F0D8B8", borderRadius: 8, fontSize: 12, lineHeight: 1.5, color: "#555" }}>
+                  {scheduleMAMeta.austritt
+                    ? <>Ausgetreten am <strong>{scheduleMAMeta.austritt}</strong>. </>
+                    : null}
+                  «Gültig ab» auf <strong>2026-01</strong> lassen (oder früher), damit historische Monate stimmen — oder pro Monat einen Override setzen.
+                </div>
+              )}
               <ScheduleHelp />
               <div style={{display:"flex",flexWrap:"wrap",gap:12,marginBottom:16}}>
                 <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
@@ -1461,6 +1496,9 @@ function AdminPage() {
                   </div>
                 )}
               </div>
+              {scheduleLoading ? (
+                <div style={{ padding: 32, textAlign: "center", color: "#888" }}>Arbeitsplan wird geladen…</div>
+              ) : (
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr style={{background:CD.primary,color:"white"}}>
                   <th style={{padding:"10px 14px",textAlign:"left"}}>Tag</th>
@@ -1517,9 +1555,10 @@ function AdminPage() {
                   })}
                 </tbody>
               </table>
+              )}
               <div style={{marginTop:16,display:"flex",gap:8}}>
-                <button style={btn()} onClick={saveSchedule}>Speichern</button>
-                <button style={btn("#EEE","#333")} onClick={()=>{setScheduleMA(null);setScheduleEditYM("")}}>Abbrechen</button>
+                <button style={btn()} onClick={saveSchedule} disabled={scheduleLoading}>Speichern</button>
+                <button style={btn("#EEE","#333")} onClick={()=>{setScheduleMA(null);setScheduleMAMeta(null);setScheduleEditYM("")}}>Abbrechen</button>
               </div>
             </div>
           )}

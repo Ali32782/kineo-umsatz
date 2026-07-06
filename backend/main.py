@@ -1017,7 +1017,7 @@ def admin_create_ma(data: MACreate, db: Session = Depends(get_db), current_user:
     db.add(ma); db.commit(); db.refresh(ma)
     return {"id": ma.id, "message": f"{ma.name} erstellt"}
 
-@app.put("/api/admin/ma/{ma_name}")
+@app.put("/api/admin/ma/{ma_name:path}")
 def admin_update_ma(ma_name: str, data: MACreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role != "ceo":
         raise HTTPException(status_code=403, detail="Keine Berechtigung")
@@ -1027,7 +1027,7 @@ def admin_update_ma(ma_name: str, data: MACreate, db: Session = Depends(get_db),
     db.commit()
     return {"message": f"{ma_name} aktualisiert"}
 
-@app.patch("/api/admin/ma/{ma_name}/toggle")
+@app.patch("/api/admin/ma/{ma_name:path}/toggle")
 def admin_toggle_ma(ma_name: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role != "ceo":
         raise HTTPException(status_code=403, detail="Keine Berechtigung")
@@ -1052,7 +1052,7 @@ class ScheduleSave(BaseModel):
     year: Optional[int] = None
     month: Optional[int] = None
 
-@app.get("/api/admin/schedule/{ma_name}")
+@app.get("/api/admin/schedule/{ma_name:path}")
 def get_schedule(
     ma_name: str,
     year: Optional[int] = None,
@@ -1114,7 +1114,7 @@ def get_schedule(
         days.append({"weekday": wd, "vm_pct": vm, "vm_standort": None, "nm_pct": nm, "nm_standort": None})
     return {"days": days, "valid_from": valid_from, "scope": "from", "versions": versions}
 
-@app.post("/api/admin/schedule/{ma_name}")
+@app.post("/api/admin/schedule/{ma_name:path}")
 def save_schedule(ma_name: str, payload: ScheduleSave, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role != "ceo":
         raise HTTPException(status_code=403, detail="Keine Berechtigung")
