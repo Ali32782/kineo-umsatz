@@ -56,3 +56,24 @@ def test_full_access_sees_all():
         assert len(filter_mas_for_user(all_mas, ali, db)) == len(all_mas)
     finally:
         db.close()
+
+
+def test_manual_team_change_survives_restart():
+    init_db()
+    db = SessionLocal()
+    try:
+        valerio = db.query(MAStammdaten).filter_by(name="Valerio.S").first()
+        assert valerio is not None
+        valerio.team = "Thalwil"
+        db.commit()
+    finally:
+        db.close()
+
+    init_db()  # simuliert Backend-Neustart
+
+    db = SessionLocal()
+    try:
+        valerio = db.query(MAStammdaten).filter_by(name="Valerio.S").first()
+        assert valerio.team == "Thalwil"
+    finally:
+        db.close()

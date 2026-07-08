@@ -200,6 +200,39 @@ def get_storage_info() -> dict:
     }
 
 
+def _ensure_migrations_table():
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if inspector.has_table("app_migrations"):
+        return
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE app_migrations ("
+            "key VARCHAR PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+        ))
+
+
+def _migration_done(key: str) -> bool:
+    from sqlalchemy import text
+
+    _ensure_migrations_table()
+    with engine.begin() as conn:
+        row = conn.execute(text("SELECT 1 FROM app_migrations WHERE key = :k"), {"k": key}).fetchone()
+    return row is not None
+
+
+def run_migration_once(key: str, fn) -> None:
+    """Einmalige Datenmigration — überschreibt Admin-Änderungen nicht bei jedem Deploy."""
+    if _migration_done(key):
+        return
+    fn()
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO app_migrations (key) VALUES (:k)"), {"k": key})
+
+
 def _backfill_ma_teams():
     """Korrigiert bekannte falsche FK-Heimatstandorte in Stammdaten."""
     from ma_access import CANONICAL_MA_TEAMS
@@ -231,7 +264,7 @@ def _migrate_bilat_flow_phase():
 
 
 def migrate_schema():
-    """Lightweight migrations for existing SQLite databases."""
+    """Lightweight schema migrations (Spalten/Tabellen) — ohne Stammdaten zu überschreiben."""
     _migrate_bilat_flow_phase()
     if not IS_SQLITE:
         migrate_legacy_schedule_sets()
@@ -334,6 +367,8 @@ def _backfill_departed_mas():
         for spec in DEPARTED_MAS:
             ma = db.query(MAStammdaten).filter_by(name=spec["name"]).first()
             if ma:
+                if ma.is_active:
+                    continue  # manuell reaktiviert — nicht zurücksetzen
                 ma.austritt = spec["austritt"]
                 ma.is_active = False
                 if not ma.eintritt:
@@ -407,9 +442,6 @@ def seed_schedules_from_excel():
         if db.query(MAScheduleSet).filter_by(ma_name=ma_name).first():
             continue
         create_schedule_set(db, ma_name, "2026-01", days)
-    meike = db.query(MAStammdaten).filter_by(name="Meike.V").first()
-    if meike and meike.team == "Thalwil":
-        meike.team = "Seefeld"
     db.commit()
     db.close()
 
@@ -442,13 +474,13 @@ def migrate_schedule_halbtag_units():
 def init_db():
     Base.metadata.create_all(bind=engine)
     migrate_schema()
-    migrate_schedule_halbtag_units()
     seed_initial_data()
     seed_schedules_from_excel()
-    _backfill_departed_mas()
     _backfill_missing_schedules()
+    run_migration_once("schedule_halbtag_units_v1", migrate_schedule_halbtag_units)
+    run_migration_once("ma_teams_canonical_v1", _backfill_ma_teams)
+    run_migration_once("departed_mas_v1", _backfill_departed_mas)
     _backfill_sereina_coo()
-    _backfill_ma_teams()
 
 def seed_initial_data():
     """Seed users and MA Stammdaten on first run"""
