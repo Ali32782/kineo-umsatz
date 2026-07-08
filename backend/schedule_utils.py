@@ -131,6 +131,22 @@ def collect_ma_standorte(
     return standorte_from_entries(get_schedule_entries_for_month(ma_name, y, m, db))
 
 
+def collect_ma_standorte_for_year(
+    ma_name: str,
+    schedule_cache: dict,
+    through_month: int,
+    primary_team: str | None = None,
+) -> list[str]:
+    """Alle Standorte aus Arbeitsplan Jan–through_month."""
+    found: set[str] = set()
+    for month in range(1, through_month + 1):
+        for s in standorte_from_entries(schedule_cache.get((ma_name, month), [])):
+            found.add(s)
+    if not found and primary_team and primary_team not in ("Office", "Management"):
+        found.add(primary_team)
+    return sorted(found)
+
+
 def get_schedule_entries_for_month(ma_name: str, year: int, month: int, db) -> list:
     """Monats-Override > Version gültig ab ≤ Monat > Legacy."""
     from database import MAScheduleEntry, MAScheduleSet

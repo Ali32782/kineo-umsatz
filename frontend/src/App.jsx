@@ -911,6 +911,27 @@ function UploadPage() {
 }
 
 // ── YTD Overview Page ──────────────────────────────────────────────────────
+function UmsatzCell({ value }) {
+  if (!value) return <span style={{ color: "#DDD", fontSize: 11 }}>—</span>
+  return (
+    <span style={{
+      display: "inline-block", minWidth: 56, padding: "4px 6px", fontSize: 11, fontWeight: 600,
+      color: "#004869", background: "#F0F4F6", borderRadius: 4, textAlign: "center",
+    }}>
+      {value.toLocaleString("de-CH")}
+    </span>
+  )
+}
+
+function maStandorteList(ma) {
+  return ma.standorte?.length ? ma.standorte : (ma.team ? [ma.team] : [])
+}
+
+function maAvgMonthlyUmsatz(ma) {
+  const vals = (ma.monthly || []).filter(Boolean).map(c => c.umsatz || 0).filter(u => u > 0)
+  return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null
+}
+
 function OverviewPage() {
   const years = useAvailableYears()
   const [year, setYear] = useState(DEFAULT_YEAR)
@@ -918,7 +939,9 @@ function OverviewPage() {
   const { data, loading, error } = useYtd(year, reloadKey)
   const [filterTeam, setFilterTeam] = useState("Alle")
   const [filterRole, setFilterRole] = useState("Alle")
+  const [filterFk, setFilterFk] = useState("Alle")
   const [hideExMa, setHideExMa] = useState(true)
+  const [viewMode, setViewMode] = useState("zeg")
   const [sortKey, setSortKey] = useState("name")
   const [sortDir, setSortDir] = useState("asc")
   const months = ["Jan","Feb","Mrz","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"]
@@ -937,22 +960,42 @@ function OverviewPage() {
   const visibleMonths = months.slice(0, visibleMonthCount)
 
   const allMA = data.ma_data || []
-  const teams = ["Alle", ...Array.from(new Set(allMA.map(m => m.team))).sort()]
+  const standortSet = new Set()
+  allMA.forEach(m => maStandorteList(m).forEach(s => { if (s) standortSet.add(s) }))
+  const teams = ["Alle", ...Array.from(standortSet).sort()]
   const roles = ["Alle", ...Array.from(new Set(allMA.map(m => m.role).filter(Boolean))).sort()]
+  const fkOptions = [{ username: "Alle", label: "Alle" }]
+  const fkSeen = new Set()
+  allMA.forEach(m => {
+    if (m.fk_username && !fkSeen.has(m.fk_username)) {
+      fkSeen.add(m.fk_username)
+      fkOptions.push({ username: m.fk_username, label: m.fk_display_name || m.fk_username })
+    }
+  })
+  fkOptions.sort((a, b) => (a.username === "Alle" ? -1 : b.username === "Alle" ? 1 : a.label.localeCompare(b.label)))
 
   let rows = allMA.filter(m =>
-    (filterTeam === "Alle" || m.team === filterTeam) &&
+    (filterTeam === "Alle" || maStandorteList(m).includes(filterTeam)) &&
     (filterRole === "Alle" || m.role === filterRole) &&
+    (filterFk === "Alle" || m.fk_username === filterFk) &&
     (!hideExMa || m.is_active !== false)
   )
 
   const dir = sortDir === "asc" ? 1 : -1
   rows = [...rows].sort((a, b) => {
     if (sortKey === "name") return dir * (a.display_name||"").localeCompare(b.display_name||"")
-    if (sortKey === "team") return dir * (a.team||"").localeCompare(b.team||"")
-    if (sortKey === "avg") return dir * ((a.avg_zeg_b||0) - (b.avg_zeg_b||0))
+    if (sortKey === "team") return dir * maStandorteList(a).join(" · ").localeCompare(maStandorteList(b).join(" · "))
+    if (sortKey === "avg") {
+      if (viewMode === "umsatz") return dir * ((maAvgMonthlyUmsatz(a) || 0) - (maAvgMonthlyUmsatz(b) || 0))
+      return dir * ((a.avg_zeg_b || 0) - (b.avg_zeg_b || 0))
+    }
     if (sortKey.startsWith("m")) {
       const mi = parseInt(sortKey.slice(1), 10)
+      if (viewMode === "umsatz") {
+        const av = (a.monthly || [])[mi]?.umsatz ?? -1
+        const bv = (b.monthly || [])[mi]?.umsatz ?? -1
+        return dir * (av - bv)
+      }
       const av = (a.monthly||[])[mi]?.zeg_b ?? -1
       const bv = (b.monthly||[])[mi]?.zeg_b ?? -1
       return dir * (av - bv)
@@ -967,7 +1010,7 @@ function OverviewPage() {
 
   const SortArrow = ({ k }) => sortKey === k ? <span style={{ marginLeft: 4 }}>{sortDir === "asc" ? "▲" : "▼"}</span> : null
 
-  const filtered = filterTeam !== "Alle" || filterRole !== "Alle" || hideExMa
+  const filtered = filterTeam !== "Alle" || filterRole !== "Alle" || filterFk !== "Alle" || hideExMa
   const displayMonthlyTotals = filtered
     ? Array.from({ length: 12 }, (_, mi) =>
         rows.reduce((s, ma) => {
@@ -983,19 +1026,29 @@ function OverviewPage() {
 
   const selectStyle = { padding: "6px 10px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12, background: "white", color: "#333" }
 
+  const viewToggleBtn = (mode, label) => ({
+    padding: "6px 12px", border: "1px solid #DDD", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600,
+    background: viewMode === mode ? "#004869" : "white",
+    color: viewMode === mode ? "white" : "#555",
+  })
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Roboto Condensed', sans-serif", letterSpacing: "0.03em" }}>Jahresübersicht {year}</h1>
           <div style={{ color: "#888", fontSize: 13 }}>
-            ZEG-B pro Monat und Mitarbeiter
+            {viewMode === "zeg" ? "ZEG-B pro Monat und Mitarbeiter" : "Umsatz pro Monat und Mitarbeiter (CHF)"}
             {data.reporting_through_label && throughMonth < 12 && (
               <span> · Stand {data.reporting_through_label}</span>
             )}
           </div>
         </div>
-        <YearSelect value={year} onChange={setYear} years={years} />
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <button type="button" style={viewToggleBtn("zeg", "ZEG-B %")} onClick={() => setViewMode("zeg")}>ZEG-B %</button>
+          <button type="button" style={viewToggleBtn("umsatz", "Umsatz CHF")} onClick={() => setViewMode("umsatz")}>Umsatz CHF</button>
+          <YearSelect value={year} onChange={setYear} years={years} />
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
@@ -1003,6 +1056,12 @@ function OverviewPage() {
           Standort:
           <select value={filterTeam} onChange={e => setFilterTeam(e.target.value)} style={selectStyle}>
             {teams.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
+          Führungsperson:
+          <select value={filterFk} onChange={e => setFilterFk(e.target.value)} style={selectStyle}>
+            {fkOptions.map(f => <option key={f.username} value={f.username}>{f.label}</option>)}
           </select>
         </label>
         <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
@@ -1015,8 +1074,8 @@ function OverviewPage() {
           <input type="checkbox" checked={hideExMa} onChange={e => setHideExMa(e.target.checked)} />
           Ex-MA ausblenden
         </label>
-        {(filterTeam !== "Alle" || filterRole !== "Alle" || hideExMa) && (
-          <button onClick={() => { setFilterTeam("Alle"); setFilterRole("Alle"); setHideExMa(true) }}
+        {(filterTeam !== "Alle" || filterRole !== "Alle" || filterFk !== "Alle" || hideExMa) && (
+          <button onClick={() => { setFilterTeam("Alle"); setFilterRole("Alle"); setFilterFk("Alle"); setHideExMa(true) }}
             style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #DDD", background: "white", fontSize: 12, color: "#888", cursor: "pointer" }}>
             Filter zurücksetzen
           </button>
@@ -1036,8 +1095,8 @@ function OverviewPage() {
                 <th onClick={() => toggleSort("name")} style={{ padding: "12px 16px", textAlign: "left", position: "sticky", left: 0, background: "#004869", zIndex: 2, minWidth: 140, cursor: "pointer", userSelect: "none" }}>
                   Mitarbeiter<SortArrow k="name" />
                 </th>
-                <th onClick={() => toggleSort("team")} style={{ padding: "12px 8px", textAlign: "center", minWidth: 60, cursor: "pointer", userSelect: "none" }}>
-                  Team<SortArrow k="team" />
+                <th onClick={() => toggleSort("team")} style={{ padding: "12px 8px", textAlign: "center", minWidth: 90, cursor: "pointer", userSelect: "none" }}>
+                  Standorte<SortArrow k="team" />
                 </th>
                 {visibleMonths.map((m, mi) => (
                   <th key={m} onClick={() => toggleSort("m"+mi)} style={{ padding: "12px 8px", textAlign: "center", minWidth: 68, cursor: "pointer", userSelect: "none" }}>
@@ -1045,7 +1104,7 @@ function OverviewPage() {
                   </th>
                 ))}
                 <th onClick={() => toggleSort("avg")} style={{ padding: "12px 12px", textAlign: "center", minWidth: 80, borderLeft: "2px solid rgba(255,255,255,0.3)", cursor: "pointer", userSelect: "none" }}>
-                  Ø ZEG-B<SortArrow k="avg" />
+                  {viewMode === "zeg" ? "Ø ZEG-B" : "Ø CHF"}<SortArrow k="avg" />
                 </th>
                 <th style={{ padding: "12px 12px", textAlign: "right", minWidth: 100, borderLeft: "2px solid rgba(255,255,255,0.3)" }}>
                   Jahr CHF
@@ -1059,17 +1118,23 @@ function OverviewPage() {
                     {ma.display_name}
                     {ma.is_active === false && <span style={{ marginLeft: 6, fontSize: 10, color: "#999" }}>(ausgetreten)</span>}
                   </td>
-                  <td style={{ padding: "8px 8px", textAlign: "center", color: "#888", fontSize: 11 }}>{ma.team}</td>
+                  <td style={{ padding: "8px 8px", textAlign: "center", color: "#888", fontSize: 10, lineHeight: 1.35 }}>
+                    {maStandorteList(ma).join(" · ") || "—"}
+                  </td>
                   {visibleMonths.map((_, mi) => {
                     const m = (ma.monthly || [])[mi]
                     return (
                     <td key={mi} style={{ padding: "6px 4px", textAlign: "center" }}>
-                      {m ? <ZEGBadge value={m.zeg_b} color={m.color} /> : <span style={{ color: "#DDD", fontSize: 11 }}>—</span>}
+                      {viewMode === "zeg"
+                        ? (m ? <ZEGBadge value={m.zeg_b} color={m.color} /> : <span style={{ color: "#DDD", fontSize: 11 }}>—</span>)
+                        : <UmsatzCell value={m?.umsatz} />}
                     </td>
                     )
                   })}
                   <td style={{ padding: "6px 8px", textAlign: "center", borderLeft: "2px solid #EEE" }}>
-                    <ZEGBadge value={ma.avg_zeg_b} color={ma.color} size="sm" />
+                    {viewMode === "zeg"
+                      ? <ZEGBadge value={ma.avg_zeg_b} color={ma.color} size="sm" />
+                      : <UmsatzCell value={maAvgMonthlyUmsatz(ma)} />}
                   </td>
                   <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, borderLeft: "2px solid #EEE", fontSize: 11 }}>
                     {(ma.total_umsatz||0).toLocaleString("de-CH")}
@@ -1099,6 +1164,7 @@ function OverviewPage() {
           </table>
         </div>
       </div>
+      {viewMode === "zeg" && (
       <div style={{ marginTop: 16, display: "flex", gap: 16, fontSize: 12, color: "#888" }}>
         {[["green","≥ 100%"],["amber","85–99%"],["red","< 85%"]].map(([c,l]) => (
           <div key={c} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1107,6 +1173,7 @@ function OverviewPage() {
           </div>
         ))}
       </div>
+      )}
     </div>
   )
 }

@@ -573,7 +573,7 @@ def get_ytd(
         reporting_through_month,
         zeg_color,
     )
-    from schedule_utils import build_schedule_cache
+    from schedule_utils import build_schedule_cache, collect_ma_standorte_for_year
 
     through_month = reporting_through_month(year)
     all_mas = db.query(MAStammdaten).all()
@@ -586,6 +586,13 @@ def get_ytd(
         year=year,
         months=list(range(1, through_month + 1)) if through_month else None,
     )
+    fk_names = {m.fk_username for m in mas if m.fk_username}
+    fk_users = {}
+    if fk_names:
+        fk_users = {
+            u.username: u
+            for u in db.query(User).filter(User.username.in_(fk_names)).all()
+        }
     umsatz_all = db.query(UmsatzData).filter(UmsatzData.year == year).all()
     inputs_all = db.query(MonthlyInput).filter(MonthlyInput.year == year).all()
 
@@ -660,14 +667,21 @@ def get_ytd(
                 zeg_b_values.append(zeg["zeg_b"])
 
         avg_zeg_b = round(sum(zeg_b_values) / len(zeg_b_values), 3) if zeg_b_values else None
+        fk = fk_users.get(ma.fk_username) if ma.fk_username else None
+        standorte = collect_ma_standorte_for_year(
+            name, schedule_cache, through_month, ma.team,
+        ) if through_month else []
         results.append({
             "name": name,
             "display_name": ma.display_name,
             "team": ma.team,
+            "standorte": standorte,
             "role": ma.role,
             "bg_pct": ma.bg_pct,
             "is_active": ma.is_active,
             "austritt": ma.austritt,
+            "fk_username": ma.fk_username,
+            "fk_display_name": (fk.full_name if fk else None) if ma.fk_username else None,
             "monthly": monthly,
             "avg_zeg_b": avg_zeg_b,
             "color": zeg_color(avg_zeg_b),
