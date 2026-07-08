@@ -148,7 +148,10 @@ function useYtd(year, reloadKey = 0) {
     api(`/api/ytd/${year}`)
       .then(d => {
         if (!active) return
-        if (d?.year !== year) return
+        if (d?.year !== year) {
+          setError("Ungültige Antwort vom Server")
+          return
+        }
         setData(d)
       })
       .catch(e => { if (active) setError(e.message || "Daten konnten nicht geladen werden") })
@@ -912,9 +915,6 @@ function OverviewPage() {
   const [sortKey, setSortKey] = useState("name")
   const [sortDir, setSortDir] = useState("asc")
   const months = ["Jan","Feb","Mrz","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"]
-  const throughMonth = data.reporting_through_month ?? 12
-  const visibleMonthCount = throughMonth > 0 ? throughMonth : 12
-  const visibleMonths = months.slice(0, visibleMonthCount)
 
   if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#888" }}>Lade Jahresübersicht {year}…</div>
   if (error) return (
@@ -924,6 +924,10 @@ function OverviewPage() {
     </div>
   )
   if (!data || data.year !== year) return <div style={{ textAlign: "center", padding: 60, color: "#888" }}>Lade Jahresübersicht {year}…</div>
+
+  const throughMonth = data.reporting_through_month ?? 12
+  const visibleMonthCount = throughMonth > 0 ? throughMonth : 12
+  const visibleMonths = months.slice(0, visibleMonthCount)
 
   const allMA = data.ma_data || []
   const teams = ["Alle", ...Array.from(new Set(allMA.map(m => m.team))).sort()]

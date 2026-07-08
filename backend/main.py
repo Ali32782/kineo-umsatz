@@ -633,6 +633,9 @@ def get_ytd(
             if umsatz == 0 and soll == 0 and not inp:
                 monthly.append(None)
                 continue
+            if umsatz == 0:
+                monthly.append({"umsatz": 0, "zeg_b": None, "color": "gray"})
+                continue
             total_umsatz += umsatz
             zeg = compute_zeg(
                 name, year, m, umsatz,
