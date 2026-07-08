@@ -1336,6 +1336,11 @@ function AdminPage() {
     </select>
   )
 
+  const formatStandorte = (ma) => {
+    const sites = ma.standorte?.length ? ma.standorte : (ma.team ? [ma.team] : [])
+    return sites.length ? sites.join(" · ") : "—"
+  }
+
   const tabs = [["ma","Mitarbeiter", Users],["schedule","Arbeitstag-Muster", Calendar],["feiertage","Feiertage", Calendar]]
 
   return (
@@ -1376,7 +1381,7 @@ function AdminPage() {
                 ))}
                 <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:4}}>Führungsperson</div>
                 {fkSelect(newMA.fk_username, v => setNewMA({ ...newMA, fk_username: v }))}</div>
-                <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:4}}>Standort</div>
+                <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:4}}>Hauptstandort</div>
                 <select style={inp({width:"100%",boxSizing:"border-box"})} value={newMA.team} onChange={e=>setNewMA({...newMA,team:e.target.value})}>
                   {STANDORTE.filter(s=>s!=="Office").map(s=><option key={s}>{s}</option>)}</select></div>
                 <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:4}}>Rolle</div>
@@ -1394,7 +1399,7 @@ function AdminPage() {
 
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
             <thead><tr style={{background:"#004869",color:"white"}}>
-              {["Name","Anzeige","Führungsperson","Rolle","Standort","BG%","Eintritt","Austritt","Status","Aktionen"].map(h=>(
+              {["Name","Anzeige","Führungsperson","Rolle","Standorte","BG%","Eintritt","Austritt","Status","Aktionen"].map(h=>(
                 <th key={h} style={{padding:"10px 12px",textAlign:"left",fontWeight:700}}>{h}</th>
               ))}
             </tr></thead>
@@ -1422,7 +1427,7 @@ function AdminPage() {
                   <td style={{padding:"8px 12px"}}>{ma.display_name}</td>
                   <td style={{padding:"8px 12px",color:"#555",fontSize:12}}>{ma.fk_display_name || ma.fk_username || "—"}</td>
                   <td style={{padding:"8px 12px",color:"#555"}}>{formatRoleLabel(ma.role)}</td>
-                  <td style={{padding:"8px 12px",color:"#555"}}>{ma.team}</td>
+                  <td style={{padding:"8px 12px",color:"#555",fontSize:12}} title={formatStandorte(ma)}>{formatStandorte(ma)}</td>
                   <td style={{padding:"8px 12px",textAlign:"center"}}>{(ma.bg_pct*100).toFixed(0)}%</td>
                   <td style={{padding:"8px 12px",fontSize:12,color:"#777"}}>{ma.eintritt||"—"}</td>
                   <td style={{padding:"8px 12px",fontSize:12,color:"#777"}}>{ma.austritt||"—"}</td>

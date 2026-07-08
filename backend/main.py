@@ -1100,10 +1100,14 @@ class MACreate(BaseModel):
     fk_username: Optional[str] = None
 
 
-def _ma_admin_dict(m: MAStammdaten, fk_users: dict) -> dict:
+def _ma_admin_dict(m: MAStammdaten, fk_users: dict, *, standorte: list[str] | None = None) -> dict:
     fk = fk_users.get(m.fk_username) if m.fk_username else None
+    sites = standorte if standorte is not None else []
+    if not sites and m.team and m.team not in ("Office", "Management"):
+        sites = [m.team]
     return {
         "id": m.id, "name": m.name, "display_name": m.display_name, "team": m.team,
+        "standorte": sites,
         "role": m.role, "bg_pct": m.bg_pct, "is_active": m.is_active,
         "eintritt": m.eintritt, "austritt": m.austritt,
         "fk_username": m.fk_username,
@@ -1121,12 +1125,25 @@ def admin_list_teamleads(db: Session = Depends(get_db), current_user: User = Dep
 @app.get("/api/admin/ma")
 def admin_get_ma(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     _require_full_access(current_user)
+    from datetime import date
+    from schedule_utils import build_schedule_cache, standorte_from_entries
+
     mas = db.query(MAStammdaten).order_by(MAStammdaten.name).all()
     fk_names = {m.fk_username for m in mas if m.fk_username}
     fk_users = {}
     if fk_names:
         fk_users = {u.username: u for u in db.query(User).filter(User.username.in_(fk_names)).all()}
-    return [_ma_admin_dict(m, fk_users) for m in mas]
+    year = date.today().year
+    month = date.today().month
+    schedule_cache = build_schedule_cache(db, [m.name for m in mas], year, month)
+    return [
+        _ma_admin_dict(
+            m,
+            fk_users,
+            standorte=standorte_from_entries(schedule_cache.get((m.name, month), [])),
+        )
+        for m in mas
+    ]
 
 @app.post("/api/admin/ma")
 def admin_create_ma(data: MACreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):

@@ -100,6 +100,37 @@ def build_schedule_cache(
     return cache
 
 
+def standorte_from_entries(entries) -> list[str]:
+    """Eindeutige klinische Standorte aus Arbeitsplan-Einträgen."""
+    found: set[str] = set()
+    for e in entries:
+        for s in (e.vm_standort, e.nm_standort):
+            if not s:
+                continue
+            s = str(s).strip()
+            if s and s != "Office":
+                found.add(s)
+    return sorted(found)
+
+
+def collect_ma_standorte(
+    ma_name: str,
+    db,
+    *,
+    year: int | None = None,
+    month: int | None = None,
+    schedule_cache: dict | None = None,
+) -> list[str]:
+    """Standorte aus dem Arbeitsplan — Fallback: leer."""
+    if schedule_cache is not None:
+        y = year or date.today().year
+        m = month or date.today().month
+        return standorte_from_entries(schedule_cache.get((ma_name, m), []))
+    y = year or date.today().year
+    m = month or date.today().month
+    return standorte_from_entries(get_schedule_entries_for_month(ma_name, y, m, db))
+
+
 def get_schedule_entries_for_month(ma_name: str, year: int, month: int, db) -> list:
     """Monats-Override > Version gültig ab ≤ Monat > Legacy."""
     from database import MAScheduleEntry, MAScheduleSet
