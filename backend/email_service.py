@@ -4,6 +4,7 @@ import resend
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 FROM_EMAIL = os.environ.get("FROM_EMAIL", "kineo@kineo.swiss")
 CEO_EMAILS = os.environ.get("CEO_EMAILS", "ali.peters@kineo.swiss,sereina.urech@kineo.swiss").split(",")
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://leadership.kineo.onrender.com").rstrip("/")
 
 def send_email(to: list, subject: str, html: str) -> bool:
     if not RESEND_API_KEY:
@@ -50,7 +51,7 @@ def email_zeg_alarm(alerts: list[dict]) -> bool:
           <tbody>{rows}</tbody>
         </table>
         <p style="color:#555">Bitte Bilateral vorbereiten und Massnahmen besprechen.</p>
-        <a href="https://kineo-umsatz-1.onrender.com" style="display:inline-block;background:#006B6B;color:white;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:700;margin-top:8px">
+        <a href="{APP_BASE_URL}" style="display:inline-block;background:#006B6B;color:white;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:700;margin-top:8px">
           App öffnen →
         </a>
       </div>
@@ -70,7 +71,7 @@ def email_csv_reminder(month_name: str, year: int) -> bool:
       <div style="background:white;padding:24px;border:1px solid #eee">
         <p style="color:#555">Die monatliche Umsatz-CSV für <strong>{month_name} {year}</strong> wurde noch nicht hochgeladen.</p>
         <p style="color:#555">Bitte Martino erinnern, den Export aus der Software zu machen und hochzuladen.</p>
-        <a href="https://kineo-umsatz-1.onrender.com" style="display:inline-block;background:#006B6B;color:white;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:700;margin-top:8px">
+        <a href="{APP_BASE_URL}" style="display:inline-block;background:#006B6B;color:white;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:700;margin-top:8px">
           Zur App → Daten eingeben
         </a>
       </div>
@@ -91,7 +92,7 @@ def email_new_ma(ma_names: list[str]) -> bool:
         <p style="color:#555">Folgende <strong>unbekannte Namen</strong> wurden in der CSV gefunden:</p>
         <ul style="margin:12px 0;padding-left:20px">{names_html}</ul>
         <p style="color:#555">Bitte im Admin-Bereich erfassen und Arbeitstag-Muster hinterlegen.</p>
-        <a href="https://kineo-umsatz-1.onrender.com" style="display:inline-block;background:#006B6B;color:white;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:700;margin-top:8px">
+        <a href="{APP_BASE_URL}" style="display:inline-block;background:#006B6B;color:white;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:700;margin-top:8px">
           Admin → Mitarbeiter erfassen
         </a>
       </div>

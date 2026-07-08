@@ -22,7 +22,7 @@ from email_service import email_zeg_alarm, email_csv_reminder
 SECRET_KEY = os.environ.get("SECRET_KEY", "kineo-secret-2026-change-in-prod")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 hours
-APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://kineo-umsatz-1.onrender.com").rstrip("/")
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://leadership.kineo.onrender.com").rstrip("/")
 
 app = FastAPI(title="Kineo Umsatzanalyse", version="1.0.0")
 

@@ -31,7 +31,7 @@ services:
       - key: CEO_EMAILS
         value: ali.peters@kineo.swiss,sereina.urech@kineo.swiss
       - key: APP_BASE_URL
-        value: https://kineo-umsatz-1.onrender.com
+        value: https://leadership.kineo.onrender.com
 
   - type: web
     name: kineo-frontend
