@@ -18,6 +18,7 @@ from calc import (
 )
 from email_service import email_zeg_alarm, email_csv_reminder
 from auth import has_full_access
+from ma_access import filter_mas_for_user, months_for_period
 
 def _require_full_access(user: User) -> None:
     if not has_full_access(user.role):
@@ -154,8 +155,7 @@ def get_ma_list(
         ]
     else:
         mas = [m for m in all_mas if m.is_active]
-    if current_user.role == "teamlead" and current_user.team:
-        mas = [m for m in mas if m.team == current_user.team]
+    mas = filter_mas_for_user(mas, current_user, db, year=year, months=[month] if year and month else None)
     return [{
         "name": m.name, "display_name": m.display_name, "team": m.team,
         "role": m.role, "bg_pct": m.bg_pct, "eintritt": m.eintritt,
@@ -484,8 +484,7 @@ def get_dashboard(
         m for m in all_mas
         if is_employed_in_month(m.eintritt, m.austritt, year, month, m.is_active)
     ]
-    if current_user.role == "teamlead" and current_user.team:
-        mas = [m for m in mas if m.team == current_user.team]
+    mas = filter_mas_for_user(mas, current_user, db, year=year, months=[month])
 
     umsatz_rows = db.query(UmsatzData).filter(
         UmsatzData.year == year, UmsatzData.month == month
@@ -582,10 +581,11 @@ def get_ytd(
         m for m in all_mas
         if any(is_employed_in_month(m.eintritt, m.austritt, year, mo, m.is_active) for mo in range(1, 13))
     ]
-    if current_user.role == "teamlead" and current_user.team:
-        mas = [m for m in mas if m.team == current_user.team]
-
-    umsatz_all = db.query(UmsatzData).filter(UmsatzData.year == year).all()
+    mas = filter_mas_for_user(
+        mas, current_user, db,
+        year=year,
+        months=list(range(1, through_month + 1)) if through_month else None,
+    )
     inputs_all = db.query(MonthlyInput).filter(MonthlyInput.year == year).all()
 
     umsatz_map = {(r.ma_name, r.month): r.umsatz for r in umsatz_all}
@@ -721,10 +721,11 @@ async def export_bilat_single(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Teamleads can only download their own team
-    if current_user.role == "teamlead":
+    from ma_access import TEAM_SCOPE_ROLES, ma_visible_to_user
+
+    if current_user.role in TEAM_SCOPE_ROLES:
         ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
-        if not ma or ma.team != current_user.team:
+        if not ma or not ma_visible_to_user(ma, current_user, db, year=year, months=list(range(1, month + 1))):
             raise HTTPException(status_code=403, detail="Keine Berechtigung")
     from bilat_export import generate_single_bilat
     path = generate_single_bilat(year, month, ma_name, db)
@@ -1054,8 +1055,7 @@ def save_bilat(ma_name: str, year: int, period_label: str, body: BilatSaveReques
 @app.get("/api/bilat-overview/{year}/{period_label}")
 def get_bilat_overview(year: int, period_label: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     mas = db.query(MAStammdaten).filter_by(is_active=True).all()
-    if current_user.role == "teamlead" and current_user.team:
-        mas = [m for m in mas if m.team == current_user.team]
+    mas = filter_mas_for_user(mas, current_user, db, year=year, months=months_for_period(period_label))
     bilats = {b.ma_name: b for b in db.query(BilatData).filter_by(year=year, period_label=period_label).all()}
     return [{
         "name": m.name, "display_name": m.display_name, "team": m.team,

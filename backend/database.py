@@ -200,6 +200,24 @@ def get_storage_info() -> dict:
     }
 
 
+def _backfill_ma_teams():
+    """Korrigiert bekannte falsche FK-Heimatstandorte in Stammdaten."""
+    from ma_access import CANONICAL_MA_TEAMS
+
+    db = SessionLocal()
+    try:
+        changed = False
+        for ma_name, team in CANONICAL_MA_TEAMS.items():
+            ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+            if ma and ma.team != team:
+                ma.team = team
+                changed = True
+        if changed:
+            db.commit()
+    finally:
+        db.close()
+
+
 def _migrate_bilat_flow_phase():
     from sqlalchemy import inspect, text
     inspector = inspect(engine)
@@ -430,6 +448,7 @@ def init_db():
     _backfill_departed_mas()
     _backfill_missing_schedules()
     _backfill_sereina_coo()
+    _backfill_ma_teams()
 
 def seed_initial_data():
     """Seed users and MA Stammdaten on first run"""

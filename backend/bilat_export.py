@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from bilat_hj1_export import fill_hj1_template
 from calc import MONTH_NAMES_DE, is_employed_in_month
 from database import BilatData, MAStammdaten, MonthlyInput, UmsatzData, User
+from ma_access import filter_mas_for_user, ma_visible_to_user, months_for_period
 
 EXPORTS_DIR = os.environ.get("EXPORTS_DIR", os.path.join(os.path.dirname(__file__), "../exports"))
 
@@ -28,8 +29,11 @@ def generate_bilats_zip(year: int, month: int, db: Session, current_user: User, 
         m for m in all_mas
         if any(is_employed_in_month(m.eintritt, m.austritt, year, mo, m.is_active) for mo in range(1, month + 1))
     ]
-    if current_user.role == "teamlead" and current_user.team:
-        mas = [m for m in mas if m.team == current_user.team]
+    mas = filter_mas_for_user(
+        mas, current_user, db,
+        year=year,
+        months=list(range(1, month + 1)),
+    )
 
     umsatz_all = {}
     inputs_all = {}
