@@ -12,3 +12,11 @@ def verify_password(password: str, hashed: str) -> bool:
         return hashlib.sha256(f"{salt}{password}".encode()).hexdigest() == h
     except:
         return False
+
+
+FULL_ACCESS_ROLES = frozenset({"ceo", "coo", "bd"})
+
+
+def has_full_access(role: str | None) -> bool:
+    """Vollzugriff: Ali (ceo), Sereina (coo) und Martino (bd)."""
+    return role in FULL_ACCESS_ROLES

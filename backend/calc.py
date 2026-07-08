@@ -197,9 +197,32 @@ def is_employed_in_month(
 
     return True
 
-def get_pattern(name: str, year: int, m_num: int, db=None) -> dict:
+
+def reporting_through_month(year: int, today: date | None = None) -> int:
+    """Letzter Monat für Auswertung: aktuelles Jahr → heutiger Monat, sonst 12."""
+    today = today or date.today()
+    if year < today.year:
+        return 12
+    if year > today.year:
+        return 0
+    return today.month
+
+
+def get_pattern(
+    name: str,
+    year: int,
+    m_num: int,
+    db=None,
+    schedule_entries=None,
+) -> dict:
     base = dict(MA_PATTERNS.get(name, {}))
-    if db is not None:
+    if schedule_entries is not None:
+        if schedule_entries:
+            sched = pattern_from_schedule(schedule_entries)
+            sched["mgmt"] = base.get("mgmt", 0)
+            sched["leit"] = base.get("leit", 0)
+            base = sched
+    elif db is not None:
         from schedule_utils import get_schedule_entries_for_month
         entries = get_schedule_entries_for_month(name, year, m_num, db)
         if entries:
@@ -212,19 +235,32 @@ def get_pattern(name: str, year: int, m_num: int, db=None) -> dict:
         return {**base, **overrides[m_num]}
     return base
 
-def compute_soll_tage(name: str, year: int, m_num: int, db=None) -> float:
-    pat = get_pattern(name, year, m_num, db=db)
+def compute_soll_tage(
+    name: str,
+    year: int,
+    m_num: int,
+    db=None,
+    *,
+    pattern: dict | None = None,
+    feiertage_sets: tuple[set, set] | None = None,
+    eintritt: date | None = None,
+    austritt: date | None = None,
+) -> float:
+    pat = pattern if pattern is not None else get_pattern(name, year, m_num, db=db)
     if not pat:
         return 0.0
-    ein = get_eintritt(name, year, db=db)
+    ein = eintritt if eintritt is not None else get_eintritt(name, year, db=db)
     last = calendar.monthrange(year, m_num)[1]
     me = date(year, m_num, last)
     if ein > me:
         return 0.0
-    aus = get_austritt(name, db=db)
+    aus = austritt if austritt is not None else get_austritt(name, db=db)
     if aus and aus < date(year, m_num, 1):
         return 0.0
-    feiertage_full, feiertage_half = get_feiertage_sets(year, db=db)
+    if feiertage_sets is not None:
+        feiertage_full, feiertage_half = feiertage_sets
+    else:
+        feiertage_full, feiertage_half = get_feiertage_sets(year, db=db)
     wd_map = {0: pat.get("mo",0), 1: pat.get("di",0), 2: pat.get("mi",0),
                3: pat.get("do",0), 4: pat.get("fr",0)}
     total = 0.0
@@ -256,10 +292,24 @@ def compute_zeg(
     laufanalyse_h: float = 0,
     krank_t: float = 0,
     db=None,
+    *,
+    pattern: dict | None = None,
+    feiertage_sets: tuple[set, set] | None = None,
+    eintritt: date | None = None,
+    austritt: date | None = None,
+    schedule_entries=None,
 ) -> dict:
-    soll = compute_soll_tage(name, year, m_num, db=db)
-    pat = get_pattern(name, year, m_num, db=db)
-    bg = sum([pat.get(k,0) for k in WEEKDAY_KEYS])
+    pat = pattern if pattern is not None else get_pattern(
+        name, year, m_num, db=db, schedule_entries=schedule_entries,
+    )
+    soll = compute_soll_tage(
+        name, year, m_num, db=db,
+        pattern=pat,
+        feiertage_sets=feiertage_sets,
+        eintritt=eintritt,
+        austritt=austritt,
+    )
+    bg = sum([pat.get(k, 0) for k in WEEKDAY_KEYS])
 
     mgmt_t = pat.get("mgmt", 0) / 100 * soll
     leit_t = (pat.get("leit", 0) / STD * ((soll - ferien_t) / soll)) if soll > 0 else 0

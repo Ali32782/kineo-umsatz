@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext, useMemo, useRef } from "react"
 import { API, CURRENT_YEAR, DEFAULT_YEAR, DEFAULT_MONTH, periodForMonth } from "./config.js"
-import { CD, KineoLogo, NavIcon, ScheduleHelp, Bell, LogOut, Calendar, Users } from "./brand.jsx"
+import { CD, KineoLogo, NavIcon, ScheduleHelp, Bell, LogOut, Calendar, Users, formatRoleLabel, hasFullAccess, FULL_ACCESS_ROLES } from "./brand.jsx"
 
 const AuthCtx = createContext(null)
 
@@ -287,13 +287,13 @@ function Layout({ children, page, setPage }) {
   const auth = useAuth()
   const nav = [
     { id: "dashboard", label: "Dashboard" },
-    { id: "upload", label: "Daten eingeben", roles: ["ceo","bd"] },
+    { id: "upload", label: "Daten eingeben", roles: FULL_ACCESS_ROLES },
     { id: "overview", label: "Jahresübersicht" },
-    { id: "exports", label: "Exporte", roles: ["ceo"] },
+    { id: "exports", label: "Exporte", roles: FULL_ACCESS_ROLES },
     { id: "bilats", label: "Bilaterals" },
-    { id: "lohnrechner", label: "Lohnrechner", roles: ["ceo"] },
+    { id: "lohnrechner", label: "Lohnrechner", roles: FULL_ACCESS_ROLES },
     { id: "profil", label: "Profil" },
-    { id: "admin", label: "Admin", roles: ["ceo"] },
+    { id: "admin", label: "Admin", roles: FULL_ACCESS_ROLES },
   ].filter(n => !n.roles || n.roles.includes(auth.user?.role))
 
   return (
@@ -303,7 +303,7 @@ function Layout({ children, page, setPage }) {
         <div style={{ padding: "24px 20px 20px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
           <KineoLogo variant="white" height={34} />
           <div style={{ fontSize: 10, opacity: 0.45, marginTop: 10, letterSpacing: 2, textTransform: "uppercase", fontFamily: CD.fontDisplay }}>Analytics</div>
-          {auth.user?.role === "ceo" && <NotificationBell setPage={setPage} />}
+          {hasFullAccess(auth.user?.role) && <NotificationBell setPage={setPage} />}
         </div>
         <nav style={{ flex: 1 }}>
           {nav.map(n => (
@@ -320,7 +320,7 @@ function Layout({ children, page, setPage }) {
         </nav>
         <div style={{ padding: "16px 20px", borderTop: "1px solid rgba(255,255,255,0.15)" }}>
           <div style={{ fontSize: 12, opacity: 0.8 }}>{auth.user?.full_name}</div>
-          <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 8 }}>{auth.user?.role?.toUpperCase()}</div>
+          <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 8 }}>{formatRoleLabel(auth.user?.role)}</div>
           <button onClick={auth.logout} style={{
             background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
             color: "white", padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12,
@@ -912,6 +912,9 @@ function OverviewPage() {
   const [sortKey, setSortKey] = useState("name")
   const [sortDir, setSortDir] = useState("asc")
   const months = ["Jan","Feb","Mrz","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"]
+  const throughMonth = data.reporting_through_month ?? 12
+  const visibleMonthCount = throughMonth > 0 ? throughMonth : 12
+  const visibleMonths = months.slice(0, visibleMonthCount)
 
   if (loading) return <div style={{ textAlign: "center", padding: 60, color: "#888" }}>Lade Jahresübersicht {year}…</div>
   if (error) return (
@@ -973,7 +976,12 @@ function OverviewPage() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Roboto Condensed', sans-serif", letterSpacing: "0.03em" }}>Jahresübersicht {year}</h1>
-          <div style={{ color: "#888", fontSize: 13 }}>ZEG-B pro Monat und Mitarbeiter</div>
+          <div style={{ color: "#888", fontSize: 13 }}>
+            ZEG-B pro Monat und Mitarbeiter
+            {data.reporting_through_label && throughMonth < 12 && (
+              <span> · Stand {data.reporting_through_label}</span>
+            )}
+          </div>
         </div>
         <YearSelect value={year} onChange={setYear} years={years} />
       </div>
@@ -988,7 +996,7 @@ function OverviewPage() {
         <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
           Rolle:
           <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={selectStyle}>
-            {roles.map(r => <option key={r} value={r}>{r}</option>)}
+            {roles.map(r => <option key={r} value={r}>{r === "Alle" ? "Alle" : formatRoleLabel(r)}</option>)}
           </select>
         </label>
         {(filterTeam !== "Alle" || filterRole !== "Alle") && (
@@ -1015,7 +1023,7 @@ function OverviewPage() {
                 <th onClick={() => toggleSort("team")} style={{ padding: "12px 8px", textAlign: "center", minWidth: 60, cursor: "pointer", userSelect: "none" }}>
                   Team<SortArrow k="team" />
                 </th>
-                {months.map((m, mi) => (
+                {visibleMonths.map((m, mi) => (
                   <th key={m} onClick={() => toggleSort("m"+mi)} style={{ padding: "12px 8px", textAlign: "center", minWidth: 68, cursor: "pointer", userSelect: "none" }}>
                     {m}<SortArrow k={"m"+mi} />
                   </th>
@@ -1033,11 +1041,14 @@ function OverviewPage() {
                 <tr key={ma.name} style={{ background: i%2===0?"white":"#F8F9FA" }}>
                   <td style={{ padding: "8px 16px", fontWeight: 600, position: "sticky", left: 0, background: i%2===0?"white":"#F8F9FA", zIndex: 1, borderRight: "1px solid #EEE" }}>{ma.display_name}</td>
                   <td style={{ padding: "8px 8px", textAlign: "center", color: "#888", fontSize: 11 }}>{ma.team}</td>
-                  {(ma.monthly||[]).concat(Array(12).fill(null)).slice(0,12).map((m, mi) => (
+                  {visibleMonths.map((_, mi) => {
+                    const m = (ma.monthly || [])[mi]
+                    return (
                     <td key={mi} style={{ padding: "6px 4px", textAlign: "center" }}>
                       {m ? <ZEGBadge value={m.zeg_b} color={m.color} /> : <span style={{ color: "#DDD", fontSize: 11 }}>—</span>}
                     </td>
-                  ))}
+                    )
+                  })}
                   <td style={{ padding: "6px 8px", textAlign: "center", borderLeft: "2px solid #EEE" }}>
                     <ZEGBadge value={ma.avg_zeg_b} color={ma.color} size="sm" />
                   </td>
@@ -1047,14 +1058,14 @@ function OverviewPage() {
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td colSpan={15} style={{ padding: 24, textAlign: "center", color: "#888" }}>Keine Mitarbeiter für diese Filterauswahl</td></tr>
+                <tr><td colSpan={visibleMonthCount + 4} style={{ padding: 24, textAlign: "center", color: "#888" }}>Keine Mitarbeiter für diese Filterauswahl</td></tr>
               )}
               {rows.length > 0 && (
                 <tr style={{ background: "#F0F4F6", fontWeight: 700 }}>
                   <td style={{ padding: "10px 16px", position: "sticky", left: 0, background: "#F0F4F6", borderRight: "1px solid #EEE" }} colSpan={2}>
                     Monatssumme (≙ Dashboard)
                   </td>
-                  {(displayMonthlyTotals||[]).map((t, mi) => (
+                  {(displayMonthlyTotals||[]).slice(0, visibleMonthCount).map((t, mi) => (
                     <td key={mi} style={{ padding: "8px 4px", textAlign: "center", fontSize: 10 }}>
                       {t ? t.toLocaleString("de-CH") : "—"}
                     </td>
@@ -1105,14 +1116,14 @@ function ExportsPage() {
     setLoading(l => ({...l,[key]:false}))
   }
 
-  const isCEO = auth.user?.role === "ceo"
+  const isFullAccess = hasFullAccess(auth.user?.role)
 
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ margin: "0 0 8px", fontSize: 26, fontWeight: 700, fontFamily: "'Roboto Condensed', sans-serif", letterSpacing: "0.03em" }}>Exporte</h1>
-          <div style={{ color: "#888", fontSize: 13 }}>Nur für CEO / COO</div>
+          <div style={{ color: "#888", fontSize: 13 }}>CEO, COO & Business Development</div>
         </div>
         <YearSelect value={year} onChange={setYear} years={years} />
       </div>
@@ -1120,7 +1131,7 @@ function ExportsPage() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(380px,1fr))", gap: 20 }}>
 
         {/* Excel Export */}
-        {isCEO && (
+        {isFullAccess && (
           <div style={{ background: "white", borderRadius: 8, padding: "28px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
             <div style={{ fontSize: 36, marginBottom: 16 }}>📊</div>
             <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px" }}>Umsatzanalyse Excel</h3>
@@ -1139,7 +1150,7 @@ function ExportsPage() {
           <div style={{ fontSize: 36, marginBottom: 16 }}>📁</div>
           <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px" }}>Alle Bilaterals als ZIP</h3>
           <p style={{ color: "#888", fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
-            {isCEO ? "Alle MA" : "Ihr Team"} — Word-Dokumente mit ZEG-B Daten.
+            {isFullAccess ? "Alle MA" : "Ihr Team"} — Word-Dokumente mit ZEG-B Daten.
           </p>
           <select value={bilat_month} onChange={e => setBilatMonth(+e.target.value)}
             style={{ width:"100%",padding:"8px 12px",border:"1.5px solid #DDD",borderRadius:8,fontSize:13,marginBottom:12 }}>
@@ -1309,7 +1320,7 @@ function AdminPage() {
   return (
     <div>
       <h1 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 8px",fontSize:24,fontWeight:800}}>Admin</h1>
-      <div style={{color:"#888",marginBottom:24,fontSize:13}}>Nur CEO / COO</div>
+      <div style={{color:"#888",marginBottom:24,fontSize:13}}>CEO, COO & Business Development</div>
 
       {msg && <div style={{background:msg.type==="ok"?"#E8F8E8":"#FFE8E8",color:msg.type==="ok"?"#1a7a1a":"#c0392b",padding:"10px 14px",borderRadius:8,marginBottom:16,fontSize:13,display:"flex",justifyContent:"space-between"}}>
         {msg.text}<span style={{cursor:"pointer"}} onClick={()=>setMsg(null)}>✕</span>
@@ -1347,7 +1358,7 @@ function AdminPage() {
                   {STANDORTE.filter(s=>s!=="Office").map(s=><option key={s}>{s}</option>)}</select></div>
                 <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:4}}>Rolle</div>
                 <select style={inp({width:"100%",boxSizing:"border-box"})} value={newMA.role} onChange={e=>setNewMA({...newMA,role:e.target.value})}>
-                  {ROLLEN.map(r=><option key={r}>{r}</option>)}</select></div>
+                  {ROLLEN.map(r => <option key={r} value={r}>{formatRoleLabel(r)}</option>)}</select></div>
                 <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:4}}>BG%</div>
                 <input type="number" min="0.1" max="1" step="0.1" style={inp({width:"100%",boxSizing:"border-box"})} value={newMA.bg_pct} onChange={e=>setNewMA({...newMA,bg_pct:+e.target.value})} /></div>
               </div>
@@ -1371,7 +1382,7 @@ function AdminPage() {
                   {[["display_name",180],["team",null,STANDORTE.filter(s=>s!=="Office")],["role",null,ROLLEN],["bg_pct",60],["eintritt",120],["austritt",120]].map(([k,w,opts])=>(
                     <td key={k} style={{padding:"4px 8px"}}>
                       {opts ? <select style={inp()} value={editMA[k]||""} onChange={e=>setEditMA({...editMA,[k]:e.target.value})}>
-                        {opts.map(o=><option key={o}>{o}</option>)}</select>
+                        {opts.map(o => <option key={o} value={o}>{k === "role" ? formatRoleLabel(o) : o}</option>)}</select>
                       : <input style={inp({width:w||"100%"})} value={editMA[k]||""} onChange={e=>setEditMA({...editMA,[k]:e.target.value})} />}
                     </td>
                   ))}
@@ -1386,7 +1397,7 @@ function AdminPage() {
                   <td style={{padding:"8px 12px",fontWeight:700,fontFamily:"monospace",fontSize:12}}>{ma.name}</td>
                   <td style={{padding:"8px 12px"}}>{ma.display_name}</td>
                   <td style={{padding:"8px 12px",color:"#555"}}>{ma.team}</td>
-                  <td style={{padding:"8px 12px",color:"#555"}}>{ma.role}</td>
+                  <td style={{padding:"8px 12px",color:"#555"}}>{formatRoleLabel(ma.role)}</td>
                   <td style={{padding:"8px 12px",textAlign:"center"}}>{(ma.bg_pct*100).toFixed(0)}%</td>
                   <td style={{padding:"8px 12px",fontSize:12,color:"#777"}}>{ma.eintritt||"—"}</td>
                   <td style={{padding:"8px 12px",fontSize:12,color:"#777"}}>{ma.austritt||"—"}</td>
@@ -1658,7 +1669,7 @@ function ProfilPage() {
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,maxWidth:800}}>
         <div style={{background:"white",borderRadius:12,padding:28,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
           <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 20px",color:"#004869"}}>👤 Mein Konto</h3>
-          {[["Benutzername",auth.user?.username],["Name",auth.user?.full_name],["Rolle",auth.user?.role?.toUpperCase()],["Team",auth.user?.team||"Alle"]].map(([l,v])=>(
+          {[["Benutzername",auth.user?.username],["Name",auth.user?.full_name],["Rolle",formatRoleLabel(auth.user?.role)],["Team",auth.user?.team||"Alle"]].map(([l,v])=>(
             <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"1px solid #F5F5F5"}}>
               <span style={{color:"#888",fontSize:13}}>{l}</span>
               <span style={{fontWeight:600,fontSize:13}}>{v||"—"}</span>
@@ -2102,6 +2113,14 @@ export default function App() {
     } catch { return null }
   })
   const [page, setPage] = useState("dashboard")
+
+  const RESTRICTED_PAGES = useMemo(() => new Set(["upload", "exports", "lohnrechner", "admin"]), [])
+
+  useEffect(() => {
+    if (user && RESTRICTED_PAGES.has(page) && !hasFullAccess(user.role)) {
+      setPage("dashboard")
+    }
+  }, [user, page, RESTRICTED_PAGES])
 
   const handleLogin = (userData) => {
     setUser(userData)

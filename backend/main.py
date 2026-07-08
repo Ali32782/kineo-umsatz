@@ -17,12 +17,17 @@ from calc import (
     is_employed_in_month,
 )
 from email_service import email_zeg_alarm, email_csv_reminder
+from auth import has_full_access
+
+def _require_full_access(user: User) -> None:
+    if not has_full_access(user.role):
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
 
 # ── Config ────────────────────────────────────────────────────────────────
 SECRET_KEY = os.environ.get("SECRET_KEY", "kineo-secret-2026-change-in-prod")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 hours
-APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://leadership.kineo.onrender.com").rstrip("/")
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://kineo-leadership.onrender.com").rstrip("/")
 
 app = FastAPI(title="Kineo Umsatzanalyse", version="1.0.0")
 
@@ -166,7 +171,7 @@ async def upload_csv(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role not in ("ceo", "bd"):
+    if not has_full_access(current_user.role):
         raise HTTPException(status_code=403, detail="Keine Berechtigung")
 
     content = await file.read()
@@ -316,7 +321,7 @@ async def upload_abwesenheiten(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if current_user.role not in ("ceo", "bd"):
+    if not has_full_access(current_user.role):
         raise HTTPException(status_code=403, detail="Keine Berechtigung")
 
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
@@ -444,7 +449,7 @@ def save_inputs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role not in ("ceo", "bd"):
+    if not has_full_access(current_user.role):
         raise HTTPException(status_code=403, detail="Keine Berechtigung")
 
     for item in data:
@@ -557,6 +562,21 @@ def get_ytd(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    from calc import (
+        MONTH_NAMES_DE,
+        _parse_ma_date,
+        compute_soll_tage,
+        compute_zeg,
+        get_eintritt,
+        get_feiertage_sets,
+        get_pattern,
+        is_employed_in_month,
+        reporting_through_month,
+        zeg_color,
+    )
+    from schedule_utils import build_schedule_cache
+
+    through_month = reporting_through_month(year)
     all_mas = db.query(MAStammdaten).all()
     mas = [
         m for m in all_mas
@@ -568,16 +588,18 @@ def get_ytd(
     umsatz_all = db.query(UmsatzData).filter(UmsatzData.year == year).all()
     inputs_all = db.query(MonthlyInput).filter(MonthlyInput.year == year).all()
 
-    umsatz_map = {}
-    for r in umsatz_all:
-        umsatz_map[(r.ma_name, r.month)] = r.umsatz
-
-    input_map = {}
-    for r in inputs_all:
-        input_map[(r.ma_name, r.month)] = r
+    umsatz_map = {(r.ma_name, r.month): r.umsatz for r in umsatz_all}
+    input_map = {(r.ma_name, r.month): r for r in inputs_all}
 
     from umsatz_agg import monthly_and_year_totals
-    monthly_totals, year_total_umsatz = monthly_and_year_totals(umsatz_map, mas, year)
+    monthly_totals, year_total_umsatz = monthly_and_year_totals(
+        umsatz_map, mas, year, through_month=through_month,
+    )
+
+    feiertage_sets = get_feiertage_sets(year, db=db)
+    schedule_cache = build_schedule_cache(
+        db, [m.name for m in mas], year, through_month,
+    ) if through_month else {}
 
     results = []
     for ma in mas:
@@ -585,13 +607,29 @@ def get_ytd(
         monthly = []
         zeg_b_values = []
         total_umsatz = 0
+        eintritt = _parse_ma_date(ma.eintritt)
+        if eintritt is None:
+            eintritt = get_eintritt(name, year, db=None)
+        austritt = _parse_ma_date(ma.austritt)
+
         for m in range(1, 13):
+            if m > through_month:
+                monthly.append(None)
+                continue
             if not is_employed_in_month(ma.eintritt, ma.austritt, year, m, ma.is_active):
                 monthly.append(None)
                 continue
             umsatz = umsatz_map.get((name, m), 0) or 0
             inp = input_map.get((name, m))
-            soll = compute_soll_tage(name, year, m, db=db)
+            sched = schedule_cache.get((name, m), [])
+            pat = get_pattern(name, year, m, schedule_entries=sched)
+            soll = compute_soll_tage(
+                name, year, m,
+                pattern=pat,
+                feiertage_sets=feiertage_sets,
+                eintritt=eintritt,
+                austritt=austritt,
+            )
             if umsatz == 0 and soll == 0 and not inp:
                 monthly.append(None)
                 continue
@@ -604,7 +642,10 @@ def get_ytd(
                 marketing_h=inp.marketing_h if inp else 0,
                 laufanalyse_h=inp.laufanalyse_h if inp else 0,
                 krank_t=inp.krank_t if inp else 0,
-                db=db,
+                pattern=pat,
+                feiertage_sets=feiertage_sets,
+                eintritt=eintritt,
+                austritt=austritt,
             )
             monthly.append({
                 "umsatz": round(umsatz),
@@ -627,10 +668,12 @@ def get_ytd(
             "total_umsatz": round(total_umsatz),
         })
 
-    year_total_umsatz = sum(monthly_totals)
-
     return {
         "year": year,
+        "reporting_through_month": through_month,
+        "reporting_through_label": (
+            f"{MONTH_NAMES_DE[through_month]} {year}" if through_month else None
+        ),
         "ma_data": results,
         "monthly_totals": monthly_totals,
         "year_total_umsatz": year_total_umsatz,
@@ -643,6 +686,7 @@ async def export_excel(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    _require_full_access(current_user)
     from excel_export import generate_excel
     path = generate_excel(year, db)
     return FileResponse(
@@ -658,6 +702,7 @@ async def export_bilats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    _require_full_access(current_user)
     from bilat_export import generate_bilats_zip
     path = generate_bilats_zip(year, month, db, current_user, period_label=period_label)
     return FileResponse(
@@ -805,7 +850,7 @@ def get_import_status(
         })
 
     storage = None
-    if current_user.role in ("ceo", "bd"):
+    if has_full_access(current_user.role):
         storage = get_storage_info()
 
     return {"year": year, "months": months_out, "storage": storage}
@@ -817,8 +862,7 @@ def check_zeg_trends(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if current_user.role != "ceo":
-        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    _require_full_access(current_user)
     year = year or date.today().year
     mas = db.query(MAStammdaten).filter_by(is_active=True).all()
     umsatz_all = {(r.ma_name, r.month): r.umsatz for r in db.query(UmsatzData).filter_by(year=year).all()}
@@ -875,8 +919,7 @@ def check_zeg_trends(
 # ── Monthly Reminder Check ────────────────────────────────────────────────
 @app.post("/api/admin/check-reminders")
 def check_reminders(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role != "ceo":
-        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    _require_full_access(current_user)
     from datetime import date
     today = date.today()
     if today.day < 5:
@@ -972,7 +1015,7 @@ def get_bilat_overview(year: int, period_label: str, db: Session = Depends(get_d
 # ── Notifications ─────────────────────────────────────────────────────────
 @app.get("/api/notifications")
 def get_notifications(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role != "ceo":
+    if not has_full_access(current_user.role):
         return []
     notifs = db.query(Notification).filter_by(is_read=False).order_by(Notification.created_at.desc()).all()
     return [{"id":n.id,"type":n.type,"message":n.message,"detail":n.detail,
@@ -1002,8 +1045,7 @@ class MACreate(BaseModel):
 
 @app.get("/api/admin/ma")
 def admin_get_ma(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role != "ceo":
-        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    _require_full_access(current_user)
     mas = db.query(MAStammdaten).order_by(MAStammdaten.name).all()
     return [{"id": m.id, "name": m.name, "display_name": m.display_name, "team": m.team,
              "role": m.role, "bg_pct": m.bg_pct, "is_active": m.is_active,
@@ -1011,16 +1053,14 @@ def admin_get_ma(db: Session = Depends(get_db), current_user: User = Depends(get
 
 @app.post("/api/admin/ma")
 def admin_create_ma(data: MACreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role != "ceo":
-        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    _require_full_access(current_user)
     ma = MAStammdaten(**data.dict())
     db.add(ma); db.commit(); db.refresh(ma)
     return {"id": ma.id, "message": f"{ma.name} erstellt"}
 
 @app.put("/api/admin/ma/{ma_name:path}")
 def admin_update_ma(ma_name: str, data: MACreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role != "ceo":
-        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    _require_full_access(current_user)
     ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
     if not ma: raise HTTPException(status_code=404, detail="MA nicht gefunden")
     for k,v in data.dict().items(): setattr(ma, k, v)
@@ -1029,8 +1069,7 @@ def admin_update_ma(ma_name: str, data: MACreate, db: Session = Depends(get_db),
 
 @app.patch("/api/admin/ma/{ma_name:path}/toggle")
 def admin_toggle_ma(ma_name: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role != "ceo":
-        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    _require_full_access(current_user)
     ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
     if not ma: raise HTTPException(status_code=404, detail="MA nicht gefunden")
     ma.is_active = not ma.is_active
@@ -1060,8 +1099,7 @@ def get_schedule(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if current_user.role != "ceo":
-        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    _require_full_access(current_user)
     from schedule_utils import (
         format_valid_from_label, get_schedule_entries_for_month, list_schedule_versions,
     )
@@ -1116,8 +1154,7 @@ def get_schedule(
 
 @app.post("/api/admin/schedule/{ma_name:path}")
 def save_schedule(ma_name: str, payload: ScheduleSave, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role != "ceo":
-        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    _require_full_access(current_user)
     from schedule_utils import (
         create_month_schedule_override, create_schedule_set,
         format_valid_from_label, normalize_valid_from,
@@ -1150,8 +1187,7 @@ class FeiertageEntry(BaseModel):
 
 @app.get("/api/admin/feiertage/{year}")
 def get_feiertage(year: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role != "ceo":
-        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    _require_full_access(current_user)
     entries = db.query(Feiertag).filter_by(year=year).order_by(Feiertag.date_str).all()
     if not entries:
         # Return defaults from calc.py
@@ -1161,8 +1197,7 @@ def get_feiertage(year: int, db: Session = Depends(get_db), current_user: User =
 
 @app.post("/api/admin/feiertage/{year}")
 def save_feiertage(year: int, data: List[FeiertageEntry], db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role != "ceo":
-        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    _require_full_access(current_user)
     db.query(Feiertag).filter_by(year=year).delete()
     for f in data:
         db.add(Feiertag(year=year, **f.model_dump()))
@@ -1171,8 +1206,7 @@ def save_feiertage(year: int, data: List[FeiertageEntry], db: Session = Depends(
 
 @app.delete("/api/admin/feiertage/{year}/{date_str}")
 def delete_feiertag(year: int, date_str: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role != "ceo":
-        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    _require_full_access(current_user)
     db.query(Feiertag).filter_by(year=year, date_str=date_str).delete()
     db.commit()
     return {"message": "Gelöscht"}

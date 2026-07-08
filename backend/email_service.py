@@ -4,7 +4,7 @@ import resend
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 FROM_EMAIL = os.environ.get("FROM_EMAIL", "kineo@kineo.swiss")
 CEO_EMAILS = os.environ.get("CEO_EMAILS", "ali.peters@kineo.swiss,sereina.urech@kineo.swiss").split(",")
-APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://leadership.kineo.onrender.com").rstrip("/")
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://kineo-leadership.onrender.com").rstrip("/")
 
 def send_email(to: list, subject: str, html: str) -> bool:
     if not RESEND_API_KEY:

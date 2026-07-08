@@ -27,6 +27,29 @@ export const NAV_ICONS = {
   admin: Settings,
 }
 
+/** Anzeigenamen für Rollen (intern bleiben sl, bd, …) */
+export const ROLE_LABELS = {
+  therapeut: "Therapeut",
+  teamlead: "Teamlead",
+  sl: "Standortlead",
+  bd: "Business Development",
+  management: "Management",
+  ceo: "CEO",
+  coo: "COO",
+}
+
+export function formatRoleLabel(role) {
+  if (!role) return "—"
+  return ROLE_LABELS[role] ?? role
+}
+
+/** Vollzugriff: Ali (ceo), Sereina (coo), Martino (bd) */
+export const FULL_ACCESS_ROLES = ["ceo", "coo", "bd"]
+
+export function hasFullAccess(role) {
+  return FULL_ACCESS_ROLES.includes(role)
+}
+
 import BaseKineoLogo from "./KineoLogo.jsx"
 
 /** Offizielles Logo — weiss auf dunklem Hintergrund, petrol auf hellem */

@@ -333,6 +333,14 @@ def test_get_feiertage_sets_prefers_db_over_fallback():
         db.close()
 
 
+def test_reporting_through_month():
+    from calc import reporting_through_month
+
+    assert reporting_through_month(2025, date(2026, 7, 8)) == 12
+    assert reporting_through_month(2026, date(2026, 7, 8)) == 7
+    assert reporting_through_month(2027, date(2026, 7, 8)) == 0
+
+
 def test_departed_ma_get_default_schedule():
     from database import MAScheduleSet, _backfill_departed_mas
     from schedule_utils import get_schedule_entries_for_month

@@ -43,6 +43,20 @@ def test_monthly_totals_match_sum():
         umsatz_map = {(r.ma_name, r.month): r.umsatz for r in db.query(UmsatzData).all()}
         monthly, year_total = monthly_and_year_totals(umsatz_map, mas, 2026)
         assert len(monthly) == 12
-        assert year_total == sum(monthly)
+        assert year_total == sum(v for v in monthly if v is not None)
+    finally:
+        db.close()
+
+
+def test_monthly_totals_respect_through_month():
+    db = SessionLocal()
+    try:
+        mas = db.query(MAStammdaten).filter_by(is_active=True).all()
+        umsatz_map = {(r.ma_name, r.month): r.umsatz for r in db.query(UmsatzData).all()}
+        monthly, year_total = monthly_and_year_totals(umsatz_map, mas, 2026, through_month=3)
+        assert len(monthly) == 12
+        assert monthly[3] is None
+        assert monthly[11] is None
+        assert year_total == sum(v for v in monthly[:3] if v is not None)
     finally:
         db.close()

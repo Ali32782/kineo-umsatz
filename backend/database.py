@@ -39,7 +39,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     reset_token = Column(String, nullable=True)
     reset_token_expires = Column(DateTime, nullable=True)
-    role = Column(String, default="teamlead")  # ceo, bd, teamlead
+    role = Column(String, default="teamlead")  # ceo, coo, bd, teamlead
     team = Column(String, nullable=True)        # z.B. "Seefeld", "Wipkingen"
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -204,6 +204,7 @@ def migrate_schema():
     if not IS_SQLITE:
         migrate_legacy_schedule_sets()
         _backfill_user_emails()
+        _backfill_sereina_coo()
         return
 
     from sqlalchemy import inspect, text
@@ -246,6 +247,7 @@ def migrate_schema():
             if "reset_token_expires" not in cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN reset_token_expires DATETIME"))
     _backfill_user_emails()
+    _backfill_sereina_coo()
 
 def _backfill_user_emails():
     """Bekannte Kineo-E-Mails für Passwort-Reset nachtragen."""
@@ -265,6 +267,18 @@ def _backfill_user_emails():
             if user and not user.email:
                 user.email = email
         db.commit()
+    finally:
+        db.close()
+
+
+def _backfill_sereina_coo():
+    """Sereina Urech ist COO (nicht CEO)."""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(username="sereina").first()
+        if user and user.role == "ceo":
+            user.role = "coo"
+            db.commit()
     finally:
         db.close()
 
@@ -401,6 +415,7 @@ def init_db():
     seed_schedules_from_excel()
     _backfill_departed_mas()
     _backfill_missing_schedules()
+    _backfill_sereina_coo()
 
 def seed_initial_data():
     """Seed users and MA Stammdaten on first run"""
@@ -414,7 +429,7 @@ def seed_initial_data():
                  hashed_password=hash_password("kineo2026")),
             User(username="martino", full_name="Martino Crivelli", role="bd", email="martino.crivelli@kineo.swiss",
                  hashed_password=hash_password("kineo2026")),
-            User(username="sereina", full_name="Sereina Urech", role="ceo", email="sereina.urech@kineo.swiss",
+            User(username="sereina", full_name="Sereina Urech", role="coo", email="sereina.urech@kineo.swiss",
                  hashed_password=hash_password("kineo2026")),
             User(username="clara", full_name="Clara Benning", role="teamlead", team="Escher Wyss",
                  email="clara.benning@kineo.swiss", hashed_password=hash_password("kineo2026")),

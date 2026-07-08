@@ -35,6 +35,71 @@ def _entries_for_set(db, schedule_set) -> list:
     )
 
 
+def build_schedule_cache(
+    db,
+    ma_names: list[str],
+    year: int,
+    through_month: int,
+) -> dict[tuple[str, int], list]:
+    """Alle Arbeitspläne für ein Jahr vorladen — vermeidet N×12 DB-Roundtrips."""
+    from database import MAScheduleEntry, MAScheduleSet
+
+    if not ma_names or through_month < 1:
+        return {}
+
+    names = list(ma_names)
+    all_sets = db.query(MAScheduleSet).filter(MAScheduleSet.ma_name.in_(names)).all()
+    set_ids = [s.id for s in all_sets]
+    entries_by_set: dict[int, list] = {}
+    if set_ids:
+        for entry in (
+            db.query(MAScheduleEntry)
+            .filter(MAScheduleEntry.schedule_set_id.in_(set_ids))
+            .order_by(MAScheduleEntry.weekday)
+            .all()
+        ):
+            entries_by_set.setdefault(entry.schedule_set_id, []).append(entry)
+
+    legacy: dict[str, list] = {}
+    for entry in (
+        db.query(MAScheduleEntry)
+        .filter(
+            MAScheduleEntry.ma_name.in_(names),
+            MAScheduleEntry.schedule_set_id.is_(None),
+        )
+        .order_by(MAScheduleEntry.weekday)
+        .all()
+    ):
+        legacy.setdefault(entry.ma_name, []).append(entry)
+
+    sets_by_ma: dict[str, list] = {}
+    for s in all_sets:
+        sets_by_ma.setdefault(s.ma_name, []).append(s)
+
+    cache: dict[tuple[str, int], list] = {}
+    for name in names:
+        ma_sets = sets_by_ma.get(name, [])
+        for month in range(1, through_month + 1):
+            override = next(
+                (s for s in ma_sets if s.override_year == year and s.override_month == month),
+                None,
+            )
+            if override:
+                cache[(name, month)] = entries_by_set.get(override.id, [])
+                continue
+            target = month_start_iso(year, month)
+            version_sets = [
+                s for s in ma_sets
+                if s.override_year is None and s.valid_from <= target
+            ]
+            if version_sets:
+                best = max(version_sets, key=lambda s: s.valid_from)
+                cache[(name, month)] = entries_by_set.get(best.id, [])
+            else:
+                cache[(name, month)] = legacy.get(name, [])
+    return cache
+
+
 def get_schedule_entries_for_month(ma_name: str, year: int, month: int, db) -> list:
     """Monats-Override > Version gültig ab ≤ Monat > Legacy."""
     from database import MAScheduleEntry, MAScheduleSet
