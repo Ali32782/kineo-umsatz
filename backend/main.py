@@ -666,6 +666,8 @@ def get_ytd(
             "team": ma.team,
             "role": ma.role,
             "bg_pct": ma.bg_pct,
+            "is_active": ma.is_active,
+            "austritt": ma.austritt,
             "monthly": monthly,
             "avg_zeg_b": avg_zeg_b,
             "color": zeg_color(avg_zeg_b),

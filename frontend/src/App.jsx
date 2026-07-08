@@ -918,6 +918,7 @@ function OverviewPage() {
   const { data, loading, error } = useYtd(year, reloadKey)
   const [filterTeam, setFilterTeam] = useState("Alle")
   const [filterRole, setFilterRole] = useState("Alle")
+  const [hideExMa, setHideExMa] = useState(true)
   const [sortKey, setSortKey] = useState("name")
   const [sortDir, setSortDir] = useState("asc")
   const months = ["Jan","Feb","Mrz","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"]
@@ -941,7 +942,8 @@ function OverviewPage() {
 
   let rows = allMA.filter(m =>
     (filterTeam === "Alle" || m.team === filterTeam) &&
-    (filterRole === "Alle" || m.role === filterRole)
+    (filterRole === "Alle" || m.role === filterRole) &&
+    (!hideExMa || m.is_active !== false)
   )
 
   const dir = sortDir === "asc" ? 1 : -1
@@ -965,7 +967,7 @@ function OverviewPage() {
 
   const SortArrow = ({ k }) => sortKey === k ? <span style={{ marginLeft: 4 }}>{sortDir === "asc" ? "▲" : "▼"}</span> : null
 
-  const filtered = filterTeam !== "Alle" || filterRole !== "Alle"
+  const filtered = filterTeam !== "Alle" || filterRole !== "Alle" || hideExMa
   const displayMonthlyTotals = filtered
     ? Array.from({ length: 12 }, (_, mi) =>
         rows.reduce((s, ma) => {
@@ -1009,8 +1011,12 @@ function OverviewPage() {
             {roles.map(r => <option key={r} value={r}>{r === "Alle" ? "Alle" : formatRoleLabel(r)}</option>)}
           </select>
         </label>
-        {(filterTeam !== "Alle" || filterRole !== "Alle") && (
-          <button onClick={() => { setFilterTeam("Alle"); setFilterRole("Alle") }}
+        <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+          <input type="checkbox" checked={hideExMa} onChange={e => setHideExMa(e.target.checked)} />
+          Ex-MA ausblenden
+        </label>
+        {(filterTeam !== "Alle" || filterRole !== "Alle" || hideExMa) && (
+          <button onClick={() => { setFilterTeam("Alle"); setFilterRole("Alle"); setHideExMa(true) }}
             style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #DDD", background: "white", fontSize: 12, color: "#888", cursor: "pointer" }}>
             Filter zurücksetzen
           </button>
@@ -1048,8 +1054,11 @@ function OverviewPage() {
             </thead>
             <tbody>
               {rows.map((ma, i) => (
-                <tr key={ma.name} style={{ background: i%2===0?"white":"#F8F9FA" }}>
-                  <td style={{ padding: "8px 16px", fontWeight: 600, position: "sticky", left: 0, background: i%2===0?"white":"#F8F9FA", zIndex: 1, borderRight: "1px solid #EEE" }}>{ma.display_name}</td>
+                <tr key={ma.name} style={{ background: i%2===0?"white":"#F8F9FA", opacity: ma.is_active === false ? 0.65 : 1 }}>
+                  <td style={{ padding: "8px 16px", fontWeight: 600, position: "sticky", left: 0, background: i%2===0?"white":"#F8F9FA", zIndex: 1, borderRight: "1px solid #EEE" }}>
+                    {ma.display_name}
+                    {ma.is_active === false && <span style={{ marginLeft: 6, fontSize: 10, color: "#999" }}>(ausgetreten)</span>}
+                  </td>
                   <td style={{ padding: "8px 8px", textAlign: "center", color: "#888", fontSize: 11 }}>{ma.team}</td>
                   {visibleMonths.map((_, mi) => {
                     const m = (ma.monthly || [])[mi]
