@@ -167,6 +167,7 @@ class BilatData(Base):
     themen_ma = Column(Text, nullable=True)
     gespraechseindruck = Column(String, nullable=True)
     naechstes_bilat = Column(String, nullable=True)
+    flow_phase = Column(String, default="fk_prep")  # fk_prep | ma_self | reveal | done
     updated_at = Column(DateTime, default=datetime.utcnow)
     updated_by = Column(String, nullable=True)
 
@@ -199,8 +200,21 @@ def get_storage_info() -> dict:
     }
 
 
+def _migrate_bilat_flow_phase():
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    if not inspector.has_table("bilat_data"):
+        return
+    cols = {c["name"] for c in inspector.get_columns("bilat_data")}
+    if "flow_phase" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE bilat_data ADD COLUMN flow_phase VARCHAR DEFAULT 'fk_prep'"))
+            conn.execute(text("UPDATE bilat_data SET flow_phase = 'done' WHERE flow_phase IS NULL AND kat_a_fk IS NOT NULL AND kat_a_self IS NOT NULL"))
+
+
 def migrate_schema():
     """Lightweight migrations for existing SQLite databases."""
+    _migrate_bilat_flow_phase()
     if not IS_SQLITE:
         migrate_legacy_schedule_sets()
         _backfill_user_emails()

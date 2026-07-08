@@ -5,6 +5,8 @@ import os
 import shutil
 
 from docx import Document
+from docx.oxml.ns import qn
+from docx.shared import Pt, RGBColor
 from sqlalchemy.orm import Session
 
 from bilat_template_map import resolve_bilat_template
@@ -57,8 +59,60 @@ def _dash_val(value: float) -> str:
     return f"-{value:g}"
 
 
-def _set_cell_text(cell, text: str) -> None:
-    cell.text = str(text) if text is not None else ""
+_WHITE = RGBColor(0xFF, 0xFF, 0xFF)
+
+
+def _cell_fill_hex(cell) -> str | None:
+    tc_pr = cell._tc.tcPr
+    if tc_pr is None:
+        return None
+    shd = tc_pr.find(qn("w:shd"))
+    if shd is None:
+        return None
+    return shd.get(qn("w:fill"))
+
+
+def _is_dark_fill(fill: str | None) -> bool:
+    if not fill or fill.lower() in ("auto", "ffffff"):
+        return False
+    if len(fill) == 6:
+        try:
+            r, g, b = int(fill[0:2], 16), int(fill[2:4], 16), int(fill[4:6], 16)
+            return (r * 0.299 + g * 0.587 + b * 0.114) < 140
+        except ValueError:
+            return False
+    return True
+
+
+def _set_cell_text(cell, text: str, *, section_header: bool = False) -> None:
+    """Text setzen ohne Banner-Formatierung (weiss auf dunkel) zu zerstören."""
+    value = str(text) if text is not None else ""
+    dark = section_header or _is_dark_fill(_cell_fill_hex(cell))
+
+    if dark:
+        cell.text = ""
+        para = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
+        run = para.add_run(value.strip())
+        run.font.color.rgb = _WHITE
+        run.font.bold = True
+        run.font.size = Pt(11)
+        para.paragraph_format.space_before = Pt(3)
+        para.paragraph_format.space_after = Pt(3)
+        return
+
+    if cell.paragraphs and cell.paragraphs[0].runs:
+        para = cell.paragraphs[0]
+        para.runs[0].text = value
+        for extra in para.runs[1:]:
+            extra.text = ""
+    else:
+        cell.text = value
+
+
+def _merge_row_cells(row, start: int = 0, end: int | None = None) -> None:
+    end = end if end is not None else len(row.cells) - 1
+    if start < end:
+        row.cells[start].merge(row.cells[end])
 
 
 def _delete_row(table, row_idx: int) -> None:
@@ -309,8 +363,15 @@ def _fill_calc_detail(table, perf_rows: list[dict], bg_pct: str) -> None:
         f"ZEG-B = Umsatz ÷ (ProdTage(B) × CHF {int(ZIEL)}). "
         "Krank-Tage werden aus ZEG-B herausgerechnet (Spalte C), nicht aus ZEG-B."
     )
-    form_row = table.add_row().cells
-    _set_cell_text(form_row[0], formula)
+    form_row = table.add_row()
+    if len(form_row.cells) > 1:
+        _merge_row_cells(form_row, 0, len(form_row.cells) - 1)
+    _set_cell_text(form_row.cells[0], formula)
+    for para in form_row.cells[0].paragraphs:
+        para.paragraph_format.space_before = Pt(6)
+        para.paragraph_format.space_after = Pt(6)
+        for run in para.runs:
+            run.font.size = Pt(8)
 
 
 def fill_hj1_template(
@@ -354,15 +415,21 @@ def fill_hj1_template(
             _set_cell_text(h.rows[3].cells[0], fk_name)
 
     if "perf_title" in tables:
-        _set_cell_text(tables["perf_title"].rows[0].cells[0],
-                       f"  PERFORMANCE  {perf_range}  (ZEG-B: % des Ziels  |  Ziel = 100%)")
+        _set_cell_text(
+            tables["perf_title"].rows[0].cells[0],
+            f"  PERFORMANCE  {perf_range}  (ZEG-B: % des Ziels  |  Ziel = 100%)",
+            section_header=True,
+        )
 
     if "zeg_matrix" in tables:
         _fill_zeg_matrix(tables["zeg_matrix"], perf_rows, avg_zeg, bg_pct)
 
     if "qual_title" in tables:
-        _set_cell_text(tables["qual_title"].rows[0].cells[0],
-                       f"  QUALITATIVE ZIELE {half_num}. HALBJAHR {year}")
+        _set_cell_text(
+            tables["qual_title"].rows[0].cells[0],
+            f"  QUALITATIVE ZIELE {half_num}. HALBJAHR {year}",
+            section_header=True,
+        )
 
     qual_goal_names: list[str] = []
     if "qual_goals" in tables:
@@ -402,11 +469,18 @@ def fill_hj1_template(
             _set_cell_text(cells[2], f"Gesprächseindruck: {bilat.gespraechseindruck}")
 
     if "faktenblatt" in tables:
-        _set_cell_text(tables["faktenblatt"].rows[0].cells[0],
-                       f"FAKTENBLATT  |  FK-intern  |  Nicht für Mitarbeiter/in | {ma_name}  |  {ma.team or '—'}  |  BG {bg_pct}  |  {period}")
+        _set_cell_text(
+            tables["faktenblatt"].rows[0].cells[0],
+            f"FAKTENBLATT  |  FK-intern  |  Nicht für Mitarbeiter/in | {ma_name}  |  {ma.team or '—'}  |  BG {bg_pct}  |  {period}",
+            section_header=True,
+        )
 
     if "perf_detail_title" in tables:
-        _set_cell_text(tables["perf_detail_title"].rows[0].cells[0], f"  PERFORMANCE-DETAIL  {perf_range}")
+        _set_cell_text(
+            tables["perf_detail_title"].rows[0].cells[0],
+            f"  PERFORMANCE-DETAIL  {perf_range}",
+            section_header=True,
+        )
 
     if "perf_detail" in tables:
         _fill_perf_detail(tables["perf_detail"], perf_rows, year, perf_range, avg_zeg)

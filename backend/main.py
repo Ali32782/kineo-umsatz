@@ -964,6 +964,52 @@ class BilatInput(BaseModel):
     gespraechseindruck: Optional[str] = None
     naechstes_bilat: Optional[str] = None
 
+
+class BilatSaveRequest(BaseModel):
+    data: BilatInput
+    flow_action: Optional[str] = None  # submit_fk | submit_self | complete_reveal
+
+
+def _bilat_response(b: BilatData | None) -> dict:
+    from bilat_flow import (
+        PHASE_DONE, PHASE_FK_PREP, PHASE_MA_SELF, PHASE_REVEAL,
+        compute_deviations, fk_hint, mild_summary,
+    )
+    if not b:
+        return {
+            "flow_phase": PHASE_FK_PREP,
+            "deviations": {"categories": [], "has_grave": False, "all_mild": False, "ready": False},
+            "fk_hints": [],
+            "mild_summaries": [],
+        }
+    phase = b.flow_phase or PHASE_FK_PREP
+    payload = {k: getattr(b, k) for k in BilatInput.model_fields}
+    payload["flow_phase"] = phase
+    if phase in (PHASE_REVEAL, PHASE_DONE):
+        dev = compute_deviations(b)
+        payload["deviations"] = dev
+        payload["fk_hints"] = [fk_hint(c) for c in dev["categories"] if c["grave"]]
+        payload["mild_summaries"] = [mild_summary(c) for c in dev["categories"]] if dev["all_mild"] else []
+    else:
+        payload["deviations"] = {"categories": [], "has_grave": False, "all_mild": False, "ready": False}
+        payload["fk_hints"] = []
+        payload["mild_summaries"] = []
+    return payload
+
+
+def _apply_bilat_fields(b: BilatData, data: BilatInput, phase: str) -> None:
+    from bilat_flow import PHASE_FK_PREP, PHASE_MA_SELF
+    dump = data.model_dump()
+    if phase == PHASE_FK_PREP:
+        allowed = {k for k in dump if k.endswith("_fk") or k.endswith("_comment")}
+    elif phase == PHASE_MA_SELF:
+        allowed = {k for k in dump if k.endswith("_self") or k == "themen_ma"}
+    else:
+        allowed = set(dump.keys())
+    for k, v in dump.items():
+        if k in allowed:
+            setattr(b, k, v)
+
 @app.get("/api/bilat-periods")
 def get_bilat_periods(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Return all existing period_labels for dropdown"""
@@ -982,23 +1028,28 @@ def get_bilat_periods(db: Session = Depends(get_db), current_user: User = Depend
 @app.get("/api/bilat/{ma_name}/{year}/{period_label}")
 def get_bilat(ma_name: str, year: int, period_label: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period_label).first()
-    if not b: return {}
-    return {k: getattr(b, k) for k in BilatInput.model_fields}
+    if not b:
+        return _bilat_response(None)
+    return _bilat_response(b)
 
 @app.post("/api/bilat/{ma_name}/{year}/{period_label}")
-def save_bilat(ma_name: str, year: int, period_label: str, data: BilatInput,
+def save_bilat(ma_name: str, year: int, period_label: str, body: BilatSaveRequest,
                db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from bilat_flow import PHASE_FK_PREP, advance_phase
     b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period_label).first()
     if not b:
         half = 1 if period_label.upper().startswith("HJ1") else 2
-        b = BilatData(ma_name=ma_name, year=year, period_label=period_label, half=half)
+        b = BilatData(ma_name=ma_name, year=year, period_label=period_label, half=half, flow_phase=PHASE_FK_PREP)
         db.add(b)
-    for k, v in data.model_dump().items():
-        setattr(b, k, v)
+    phase = b.flow_phase or PHASE_FK_PREP
+    _apply_bilat_fields(b, body.data, phase)
+    if body.flow_action:
+        advance_phase(b, body.flow_action)
     b.updated_at = datetime.utcnow()
     b.updated_by = current_user.username
     db.commit()
-    return {"message": "Bilat gespeichert"}
+    db.refresh(b)
+    return _bilat_response(b)
 
 @app.get("/api/bilat-overview/{year}/{period_label}")
 def get_bilat_overview(year: int, period_label: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -1009,6 +1060,7 @@ def get_bilat_overview(year: int, period_label: str, db: Session = Depends(get_d
     return [{
         "name": m.name, "display_name": m.display_name, "team": m.team,
         "has_data": m.name in bilats,
+        "flow_phase": bilats[m.name].flow_phase if m.name in bilats else "fk_prep",
         "kat_a_fk": bilats[m.name].kat_a_fk if m.name in bilats else None,
         "kat_b_fk": bilats[m.name].kat_b_fk if m.name in bilats else None,
         "kat_c_fk": bilats[m.name].kat_c_fk if m.name in bilats else None,
