@@ -9,7 +9,18 @@ from schedule_utils import (  # noqa: E402
     build_schedule_cache,
     collect_ma_standorte_for_year,
     create_schedule_set,
+    standorte_from_entries,
 )
+
+
+class _Entry:
+    def __init__(self, vm_standort=None, nm_standort=None):
+        self.vm_standort = vm_standort
+        self.nm_standort = nm_standort
+
+
+def test_standorte_from_entries_normalizes_aliases():
+    assert standorte_from_entries([_Entry("Stauf.", "Thalwil")]) == ["Stauffacher", "Thalwil"]
 
 
 def test_collect_ma_standorte_for_year_multi_site():
@@ -22,7 +33,7 @@ def test_collect_ma_standorte_for_year_multi_site():
         ])
         db.commit()
         cache = build_schedule_cache(db, ["Helen.S"], 2026, 6)
-        sites = collect_ma_standorte_for_year("Helen.S", cache, 6, "Seefeld")
+        sites = collect_ma_standorte_for_year("Helen.S", cache, 6, "Seefeld", db=db, year=2026)
         assert sites == ["Seefeld", "Zollikon"]
     finally:
         db.close()

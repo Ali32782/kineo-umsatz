@@ -964,15 +964,10 @@ function OverviewPage() {
   allMA.forEach(m => maStandorteList(m).forEach(s => { if (s) standortSet.add(s) }))
   const teams = ["Alle", ...Array.from(standortSet).sort()]
   const roles = ["Alle", ...Array.from(new Set(allMA.map(m => m.role).filter(Boolean))).sort()]
-  const fkOptions = [{ username: "Alle", label: "Alle" }]
-  const fkSeen = new Set()
-  allMA.forEach(m => {
-    if (m.fk_username && !fkSeen.has(m.fk_username)) {
-      fkSeen.add(m.fk_username)
-      fkOptions.push({ username: m.fk_username, label: m.fk_display_name || m.fk_username })
-    }
-  })
-  fkOptions.sort((a, b) => (a.username === "Alle" ? -1 : b.username === "Alle" ? 1 : a.label.localeCompare(b.label)))
+  const fkOptions = [{ username: "Alle", label: "Alle" }, ...(data.fk_filter_options || []).map(f => ({
+    username: f.username,
+    label: f.full_name || f.username,
+  }))]
 
   let rows = allMA.filter(m =>
     (filterTeam === "Alle" || maStandorteList(m).includes(filterTeam)) &&

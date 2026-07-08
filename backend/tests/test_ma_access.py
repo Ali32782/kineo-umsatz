@@ -42,6 +42,22 @@ def test_list_assignable_fk_includes_ceo_coo_and_teamleads():
         db.close()
 
 
+def test_resolve_ma_fk_falls_back_to_team_teamlead():
+    from ma_access import resolve_ma_fk_user
+
+    init_db()
+    db = SessionLocal()
+    try:
+        ma = db.query(MAStammdaten).filter_by(name="Sonia.M").first()
+        ma.fk_username = None
+        hanna = db.query(User).filter_by(username="hanna").first()
+        fk = resolve_ma_fk_user(ma, db)
+        assert fk is not None
+        assert fk.username == hanna.username
+    finally:
+        db.close()
+
+
 def test_teamlead_sees_assigned_mas_by_fk():
     init_db()
     db = SessionLocal()

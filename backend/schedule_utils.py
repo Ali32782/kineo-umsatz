@@ -85,7 +85,8 @@ def build_schedule_cache(
                 None,
             )
             if override:
-                cache[(name, month)] = entries_by_set.get(override.id, [])
+                entries = entries_by_set.get(override.id, [])
+                cache[(name, month)] = entries or legacy.get(name, [])
                 continue
             target = month_start_iso(year, month)
             version_sets = [
@@ -94,7 +95,8 @@ def build_schedule_cache(
             ]
             if version_sets:
                 best = max(version_sets, key=lambda s: s.valid_from)
-                cache[(name, month)] = entries_by_set.get(best.id, [])
+                entries = entries_by_set.get(best.id, [])
+                cache[(name, month)] = entries or legacy.get(name, [])
             else:
                 cache[(name, month)] = legacy.get(name, [])
     return cache
@@ -102,12 +104,14 @@ def build_schedule_cache(
 
 def standorte_from_entries(entries) -> list[str]:
     """Eindeutige klinische Standorte aus Arbeitsplan-Einträgen."""
+    from schedule_seed import normalize_standort
+
     found: set[str] = set()
     for e in entries:
         for s in (e.vm_standort, e.nm_standort):
             if not s:
                 continue
-            s = str(s).strip()
+            s = normalize_standort(str(s).strip())
             if s and s != "Office":
                 found.add(s)
     return sorted(found)
@@ -136,14 +140,22 @@ def collect_ma_standorte_for_year(
     schedule_cache: dict,
     through_month: int,
     primary_team: str | None = None,
+    *,
+    db=None,
+    year: int | None = None,
 ) -> list[str]:
     """Alle Standorte aus Arbeitsplan Jan–through_month."""
+    from schedule_seed import normalize_standort
+
     found: set[str] = set()
     for month in range(1, through_month + 1):
-        for s in standorte_from_entries(schedule_cache.get((ma_name, month), [])):
+        entries = schedule_cache.get((ma_name, month), [])
+        if not entries and db is not None and year is not None:
+            entries = get_schedule_entries_for_month(ma_name, year, month, db)
+        for s in standorte_from_entries(entries):
             found.add(s)
     if not found and primary_team and primary_team not in ("Office", "Management"):
-        found.add(primary_team)
+        found.add(normalize_standort(primary_team))
     return sorted(found)
 
 

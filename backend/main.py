@@ -574,6 +574,7 @@ def get_ytd(
         zeg_color,
     )
     from schedule_utils import build_schedule_cache, collect_ma_standorte_for_year
+    from ma_access import list_assignable_fk_users, resolve_ma_fk_user, build_team_fk_index
 
     through_month = reporting_through_month(year)
     all_mas = db.query(MAStammdaten).all()
@@ -593,6 +594,8 @@ def get_ytd(
             u.username: u
             for u in db.query(User).filter(User.username.in_(fk_names)).all()
         }
+    team_fk_by_team = build_team_fk_index(db)
+    fk_filter_options = list_assignable_fk_users(db)
     umsatz_all = db.query(UmsatzData).filter(UmsatzData.year == year).all()
     inputs_all = db.query(MonthlyInput).filter(MonthlyInput.year == year).all()
 
@@ -667,9 +670,12 @@ def get_ytd(
                 zeg_b_values.append(zeg["zeg_b"])
 
         avg_zeg_b = round(sum(zeg_b_values) / len(zeg_b_values), 3) if zeg_b_values else None
-        fk = fk_users.get(ma.fk_username) if ma.fk_username else None
+        fk = resolve_ma_fk_user(
+            ma, db, fk_users_by_name=fk_users, team_fk_by_team=team_fk_by_team,
+        )
         standorte = collect_ma_standorte_for_year(
             name, schedule_cache, through_month, ma.team,
+            db=db, year=year,
         ) if through_month else []
         results.append({
             "name": name,
@@ -680,8 +686,8 @@ def get_ytd(
             "bg_pct": ma.bg_pct,
             "is_active": ma.is_active,
             "austritt": ma.austritt,
-            "fk_username": ma.fk_username,
-            "fk_display_name": (fk.full_name if fk else None) if ma.fk_username else None,
+            "fk_username": fk.username if fk else None,
+            "fk_display_name": (fk.full_name or fk.username) if fk else None,
             "monthly": monthly,
             "avg_zeg_b": avg_zeg_b,
             "color": zeg_color(avg_zeg_b),
@@ -697,6 +703,7 @@ def get_ytd(
         "ma_data": results,
         "monthly_totals": monthly_totals,
         "year_total_umsatz": year_total_umsatz,
+        "fk_filter_options": fk_filter_options,
     }
 
 # ── Excel Export ──────────────────────────────────────────────────────────

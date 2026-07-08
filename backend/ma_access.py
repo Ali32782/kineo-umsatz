@@ -136,3 +136,41 @@ def list_assignable_fk_users(db):
         }
         for u in users
     ]
+
+
+def build_team_fk_index(db) -> dict[str, object]:
+    """Standort → zuständige FK (Teamlead bevorzugt, sonst Standortlead)."""
+    from database import User
+
+    by_team: dict[str, object] = {}
+    for u in db.query(User).filter(
+        User.is_active == True,
+        User.role.in_(("teamlead", "sl")),
+        User.team.isnot(None),
+    ).all():
+        team = normalize_team(u.team)
+        if not team:
+            continue
+        if u.role == "teamlead" or team not in by_team:
+            by_team[team] = u
+    return by_team
+
+
+def resolve_ma_fk_user(ma, db, *, fk_users_by_name: dict | None = None, team_fk_by_team: dict | None = None):
+    """Effektive FK — explizite Zuordnung oder Standort-Teamlead/SL."""
+    from database import User
+
+    if ma.fk_username:
+        if fk_users_by_name and ma.fk_username in fk_users_by_name:
+            return fk_users_by_name[ma.fk_username]
+        fk = db.query(User).filter_by(username=ma.fk_username).first()
+        if fk:
+            return fk
+
+    team = normalize_team(ma.team)
+    if not team or team in ("Management", "Office"):
+        return None
+
+    if team_fk_by_team is None:
+        team_fk_by_team = build_team_fk_index(db)
+    return team_fk_by_team.get(team)
