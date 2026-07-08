@@ -199,13 +199,13 @@ def is_employed_in_month(
 
 
 def reporting_through_month(year: int, today: date | None = None) -> int:
-    """Letzter Monat für Auswertung: aktuelles Jahr → heutiger Monat, sonst 12."""
+    """Letzter abgeschlossener Monat: aktuelles Jahr → Vormonat (im Juli → Juni), sonst 12."""
     today = today or date.today()
     if year < today.year:
         return 12
     if year > today.year:
         return 0
-    return today.month
+    return max(0, today.month - 1)
 
 
 def get_pattern(

@@ -337,7 +337,9 @@ def test_reporting_through_month():
     from calc import reporting_through_month
 
     assert reporting_through_month(2025, date(2026, 7, 8)) == 12
-    assert reporting_through_month(2026, date(2026, 7, 8)) == 7
+    assert reporting_through_month(2026, date(2026, 7, 8)) == 6
+    assert reporting_through_month(2026, date(2026, 8, 1)) == 7
+    assert reporting_through_month(2026, date(2026, 1, 15)) == 0
     assert reporting_through_month(2027, date(2026, 7, 8)) == 0
 
 
