@@ -849,15 +849,21 @@ function UploadPage() {
                 </button>
               )}
             </div>
-            {abPreview?.details?.length > 0 && (
+            {abPreview?.details?.filter(d => d.month === month).length > 0 && (
               <div style={{ marginTop: 14, maxHeight: 160, overflowY: "auto", fontSize: 11, color: "#555" }}>
-                {abPreview.details.slice(0, 12).map((d, i) => (
+                {abPreview.details.filter(d => d.month === month).slice(0, 12).map((d, i) => (
                   <div key={i} style={{ padding: "3px 0", borderBottom: "1px solid #EEE" }}>
-                    <strong>{d.excel_name}</strong> → {d.ma_name}: {d.art}, {d.days} T ({d.von} – {d.bis})
+                    <strong>{d.excel_name}</strong> → {d.ma_name}: {d.art},{" "}
+                    {d.days} T{d.halber_tag && d.weekdays ? ` (${d.weekdays} AT × ½)` : ""} ({d.von} – {d.bis})
                   </div>
                 ))}
-                {abPreview.details.length > 12 && (
-                  <div style={{ paddingTop: 6, color: "#888" }}>… und {abPreview.details.length - 12} weitere Einträge</div>
+                {abPreview.details.filter(d => d.month === month).length > 12 && (
+                  <div style={{ paddingTop: 6, color: "#888" }}>… und {abPreview.details.filter(d => d.month === month).length - 12} weitere Einträge</div>
+                )}
+                {abPreview.months_imported?.some(m => m !== month) && (
+                  <div style={{ paddingTop: 8, color: "#888", fontSize: 10 }}>
+                    Weitere Monate wurden mitimportiert — nur {months[month - 1]} {year} in der Vorschau.
+                  </div>
                 )}
               </div>
             )}

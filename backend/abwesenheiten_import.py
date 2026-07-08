@@ -54,11 +54,37 @@ def _parse_date(value) -> date | None:
     return None
 
 
+HALF_DAY_NO = frozenset({
+    "", "-", "nein", "no", "false", "0", "0.0",
+    # HR-Export: Tageszeitpunkt, kein Halbtag-Flag
+    "beggining_of_day", "beginning_of_day", "end_of_day",
+    "start_of_day", "startzeit",
+})
+
+HALF_DAY_YES = frozenset({
+    "ja", "yes", "j", "y", "x", "true", "wahr",
+    "halber tag", "halbtag", "0.5", "½", "half",
+})
+
+
 def _is_half_day(value) -> bool:
+    """Nur explizite Halbtag-Markierung — nicht «1» (Tagesanzahl) oder HR-Zeitmarker."""
     if value is None:
         return False
-    s = str(value).strip().lower()
-    return s not in ("", "-", "nein", "no", "false", "0")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return float(value) == 0.5
+    s = _norm(str(value))
+    if s in HALF_DAY_NO:
+        return False
+    if s in HALF_DAY_YES:
+        return True
+    try:
+        float(s.replace(",", "."))
+        return False
+    except ValueError:
+        return False
 
 
 def weekdays_in_month(start: date, end: date, year: int, month: int) -> float:
@@ -144,6 +170,12 @@ def classify_art(art: str) -> str | None:
     return None
 
 
+def _get_data_sheet(wb):
+    if "Data" in wb.sheetnames:
+        return wb["Data"]
+    return wb.active
+
+
 def parse_abwesenheiten_xlsx_for_year(
     content: bytes,
     year: int,
@@ -151,7 +183,7 @@ def parse_abwesenheiten_xlsx_for_year(
 ) -> dict:
     """Alle Abwesenheiten eines Jahrs — Tage pro Monat aus Von/Bis-Zeiträumen."""
     wb = load_workbook(io.BytesIO(content), data_only=True)
-    ws = wb.active
+    ws = _get_data_sheet(wb)
     lookup = build_ma_lookup(mas)
 
     by_month: dict[int, dict[str, dict[str, float]]] = {}
@@ -181,9 +213,8 @@ def parse_abwesenheiten_xlsx_for_year(
 
         row_has_days = False
         for month in range(1, 13):
-            days = weekdays_in_month(von, bis, year, month)
-            if halber:
-                days *= 0.5
+            weekdays = weekdays_in_month(von, bis, year, month)
+            days = weekdays * 0.5 if halber else weekdays
             if days <= 0:
                 continue
             row_has_days = True
@@ -196,6 +227,8 @@ def parse_abwesenheiten_xlsx_for_year(
                 "von": von.isoformat(),
                 "bis": bis.isoformat(),
                 "month": month,
+                "weekdays": weekdays,
+                "halber_tag": halber,
                 "days": days,
                 "field": field,
             })
