@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from copy import deepcopy
 
 from docx import Document
 from docx.oxml.ns import qn
@@ -10,7 +11,7 @@ from docx.shared import Pt, RGBColor
 from sqlalchemy.orm import Session
 
 from bilat_template_map import resolve_bilat_template
-from calc import MONTH_NAMES_DE, ZIEL, compute_soll_tage, compute_zeg, is_employed_in_month
+from calc import MONTH_NAMES_DE, ZIEL, compute_soll_tage, compute_zeg, is_employed_in_month, zeg_color
 from database import BilatData, MAStammdaten, User
 
 ROLE_LABELS_DE = {
@@ -60,6 +61,124 @@ def _dash_val(value: float) -> str:
 
 
 _WHITE = RGBColor(0xFF, 0xFF, 0xFF)
+_TEAL = RGBColor(0x00, 0xB4, 0xA6)
+_RATING_GRAY = RGBColor(0x44, 0x44, 0x44)
+
+_ZEG_FILL = {"green": "D5F5E3", "amber": "FDEBD0", "red": "FADBD8"}
+_HEADER_FILL = "2C3E50"
+_LABEL_FILL = "F5F5F5"
+
+
+def _zeg_fill_hex(zeg_b: float | None) -> str | None:
+    return _ZEG_FILL.get(zeg_color(zeg_b))
+
+
+def _clone_tc_pr(source, target) -> None:
+    src_pr = source._tc.tcPr
+    if src_pr is None:
+        return
+    dst_pr = target._tc.tcPr
+    if dst_pr is not None:
+        target._tc.remove(dst_pr)
+    target._tc.insert(0, deepcopy(src_pr))
+
+
+def _set_cell_shading(cell, fill_hex: str | None) -> None:
+    from docx.oxml import OxmlElement
+
+    tc_pr = cell._tc.get_or_add_tcPr()
+    shd = tc_pr.find(qn("w:shd"))
+    if not fill_hex:
+        if shd is not None:
+            tc_pr.remove(shd)
+        return
+    if shd is None:
+        shd = OxmlElement("w:shd")
+        tc_pr.append(shd)
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:fill"), fill_hex)
+
+
+def _set_row_cant_split(row, *, keep_with_next: bool = False) -> None:
+    from docx.oxml import OxmlElement
+
+    tr_pr = row._tr.get_or_add_trPr()
+    if tr_pr.find(qn("w:cantSplit")) is None:
+        tr_pr.append(OxmlElement("w:cantSplit"))
+    if keep_with_next:
+        for para in row.cells[0].paragraphs:
+            p_pr = para._p.get_or_add_pPr()
+            if p_pr.find(qn("w:keepNext")) is None:
+                p_pr.append(OxmlElement("w:keepNext"))
+
+
+W14_NS = "http://schemas.microsoft.com/office/word/2010/wordml"
+
+
+def _set_rating_cell(cell, value: int | None) -> None:
+    """Word-Checkboxen (w:sdt) der Vorlage markieren und Zahl hervorheben."""
+    if len(cell.paragraphs) < 2:
+        return
+    para = cell.paragraphs[1]
+    children = list(para._p)
+    idx = 0
+    while idx < len(children):
+        child = children[idx]
+        if child.tag != qn("w:sdt"):
+            idx += 1
+            continue
+        checkbox = child.find(f".//{{{W14_NS}}}checkbox")
+        if checkbox is None:
+            idx += 1
+            continue
+
+        num = None
+        num_run_el = None
+        j = idx + 1
+        while j < len(children):
+            sibling = children[j]
+            if sibling.tag == qn("w:r"):
+                text_el = sibling.find(qn("w:t"))
+                if text_el is not None and text_el.text and text_el.text.strip().isdigit():
+                    num = int(text_el.text.strip())
+                    num_run_el = sibling
+                    break
+            elif sibling.tag == qn("w:sdt"):
+                break
+            j += 1
+
+        if num is not None:
+            selected = value is not None and num == value
+            checked = checkbox.find(f"{{{W14_NS}}}checked")
+            if checked is not None:
+                checked.set(f"{{{W14_NS}}}val", "1" if selected else "0")
+            for text_el in child.iter(qn("w:t")):
+                if text_el.text in ("☐", "☑"):
+                    text_el.text = "☑" if selected else "☐"
+            if num_run_el is not None:
+                from docx.text.run import Run
+
+                run = Run(num_run_el, para)
+                run.font.bold = selected
+                run.font.color.rgb = _TEAL if selected else _RATING_GRAY
+            idx = j + 1
+        else:
+            idx += 1
+
+
+def _save_row_tc_pr(table, row_idx: int) -> list:
+    if row_idx >= len(table.rows):
+        return []
+    return [deepcopy(c._tc.tcPr) if c._tc.tcPr is not None else None for c in table.rows[row_idx].cells]
+
+
+def _apply_saved_tc_pr(cell, saved: list, idx: int, fallback: int = 0) -> None:
+    src_idx = min(idx, len(saved) - 1) if saved else fallback
+    if saved and 0 <= src_idx < len(saved) and saved[src_idx] is not None:
+        dst_pr = cell._tc.tcPr
+        if dst_pr is not None:
+            cell._tc.remove(dst_pr)
+        cell._tc.insert(0, deepcopy(saved[src_idx]))
 
 
 def _cell_fill_hex(cell) -> str | None:
@@ -245,11 +364,6 @@ def _collect_performance(ma, year, through_month, umsatz_all, inputs_all, db) ->
     ]
 
 
-def _rating_cell_text(value: int | None, prefix: str) -> str:
-    base = f"{prefix} |  1   2   3   4   5"
-    return base if value is None else f"{base}\n→ {value}"
-
-
 def _standort_funktion(ma: MAStammdaten) -> str:
     role = ROLE_LABELS_DE.get(ma.role or "", ma.role or "—")
     return f"{ma.team or '—'} / {role}"
@@ -301,42 +415,98 @@ def _fill_zeg_matrix(table, perf_rows: list[dict], avg_zeg: float | None, bg_pct
     month_cols = [r["month"] for r in perf_rows]
     zeg_values = [r["zeg"]["zeg_b"] for r in perf_rows if r["zeg"].get("zeg_b") is not None]
     headers = ["ZEG-B % des Ziels"] + [MONTH_SHORT[m] for m in month_cols] + ["Ø HJ", "Trend", "BG"]
+    month_zeg = {
+        m: next(r["zeg"]["zeg_b"] for r in perf_rows if r["month"] == m)
+        for m in month_cols
+    }
     values = ["Auslastung vs. Ziel"] + [
-        _zeg_pct(next(r["zeg"]["zeg_b"] for r in perf_rows if r["month"] == m)) for m in month_cols
+        _zeg_pct(month_zeg.get(m)) for m in month_cols
     ] + [_zeg_pct(avg_zeg), _trend_arrow(zeg_values), bg_pct]
+    fills: list[str | None] = [None] + [_zeg_fill_hex(month_zeg.get(m)) for m in month_cols] + [
+        _zeg_fill_hex(avg_zeg), None, None
+    ]
 
+    tpl_hdr = _save_row_tc_pr(table, 0)
+    tpl_val = _save_row_tc_pr(table, 1)
     _clear_rows(table, keep=0)
     table.add_row()
     table.add_row()
     n_cols = len(headers)
     for row in table.rows:
         _ensure_row_width(row, n_cols)
-    for i, h in enumerate(headers):
-        _set_cell_text(table.rows[0].cells[i], h)
-    for i, v in enumerate(values):
-        _set_cell_text(table.rows[1].cells[i], v)
+
+    for i, header in enumerate(headers):
+        cell = table.rows[0].cells[i]
+        if i == 0:
+            src = 0
+        elif i >= n_cols - 3:
+            src = min(len(tpl_hdr) - 1, 6 + (i - (n_cols - 3)))
+        else:
+            src = 1
+        _apply_saved_tc_pr(cell, tpl_hdr, src, fallback=0)
+        _set_cell_shading(cell, _HEADER_FILL)
+        _set_cell_text(cell, header, section_header=True)
+
+    for i, (value, fill) in enumerate(zip(values, fills)):
+        cell = table.rows[1].cells[i]
+        if i == 0:
+            src = 0
+        elif i >= n_cols - 3:
+            src = min(len(tpl_val) - 1, 6 + (i - (n_cols - 3)))
+        else:
+            src = 1
+        _apply_saved_tc_pr(cell, tpl_val, src, fallback=0)
+        if i == 0 or i >= n_cols - 3:
+            _set_cell_shading(cell, _LABEL_FILL)
+        elif fill:
+            _set_cell_shading(cell, fill)
+        _set_cell_text(cell, value)
 
 
 def _fill_perf_detail(table, perf_rows: list[dict], year: int, perf_range: str, avg_zeg: float | None) -> None:
+    tpl_rows = [_save_row_tc_pr(table, i) for i in range(1, min(3, len(table.rows)))]
     _clear_rows(table, keep=1)
     zeg_values = []
-    for pr in perf_rows:
+    for row_idx, pr in enumerate(perf_rows):
         zeg_b = pr["zeg"].get("zeg_b")
         if zeg_b is not None:
             zeg_values.append(zeg_b)
-        row = table.add_row().cells
-        _set_cell_text(row[0], f"{MONTH_NAMES_DE[pr['month']]} {year}")
-        _set_cell_text(row[1], _zeg_pct(zeg_b))
-        _set_cell_text(row[2], _vs_ziel(zeg_b))
-        _set_cell_text(row[3], f"{zeg_b:.3f}" if zeg_b is not None else "—")
-        if len(row) > 4:
-            _set_cell_text(row[4], "")
+        row = table.add_row()
+        _ensure_row_width(row, 5)
+        tpl = tpl_rows[row_idx % len(tpl_rows)] if tpl_rows else []
+        cells = row.cells
+        row_data = [
+            f"{MONTH_NAMES_DE[pr['month']]} {year}",
+            _zeg_pct(zeg_b),
+            _vs_ziel(zeg_b),
+            f"{zeg_b:.3f}" if zeg_b is not None else "—",
+            "",
+        ]
+        for ci, txt in enumerate(row_data):
+            _apply_saved_tc_pr(cells[ci], tpl, ci, fallback=0)
+            if ci == 1 and zeg_b is not None:
+                fill = _zeg_fill_hex(zeg_b)
+                if fill:
+                    _set_cell_shading(cells[ci], fill)
+            _set_cell_text(cells[ci], txt)
     if zeg_values:
-        row = table.add_row().cells
-        _set_cell_text(row[0], f"Ø {perf_range}")
-        _set_cell_text(row[1], _zeg_pct(avg_zeg))
-        _set_cell_text(row[2], _vs_ziel(avg_zeg))
-        _set_cell_text(row[3], f"{avg_zeg:.3f}" if avg_zeg is not None else "—")
+        row = table.add_row()
+        _ensure_row_width(row, 5)
+        tpl = tpl_rows[len(perf_rows) % len(tpl_rows)] if tpl_rows else []
+        avg_row = [
+            f"Ø {perf_range}",
+            _zeg_pct(avg_zeg),
+            _vs_ziel(avg_zeg),
+            f"{avg_zeg:.3f}" if avg_zeg is not None else "—",
+            "",
+        ]
+        for ci, txt in enumerate(avg_row):
+            _apply_saved_tc_pr(row.cells[ci], tpl, ci, fallback=0)
+            if ci == 1 and avg_zeg is not None:
+                fill = _zeg_fill_hex(avg_zeg)
+                if fill:
+                    _set_cell_shading(row.cells[ci], fill)
+            _set_cell_text(row.cells[ci], txt)
 
 
 def _fill_calc_detail(table, perf_rows: list[dict], bg_pct: str) -> None:
@@ -445,10 +615,13 @@ def fill_hj1_template(
             fk_v = getattr(bilat, f"kat_{key}_fk", None)
             comment = getattr(bilat, f"kat_{key}_comment", None) or ""
             if len(t7.rows[row_idx].cells) > 3:
-                _set_cell_text(t7.rows[row_idx].cells[2], _rating_cell_text(self_v, "Selbsteinschätzung MA"))
-                _set_cell_text(t7.rows[row_idx].cells[3], _rating_cell_text(fk_v, "Einschätzung FK"))
+                _set_rating_cell(t7.rows[row_idx].cells[2], self_v)
+                _set_rating_cell(t7.rows[row_idx].cells[3], fk_v)
             if row_idx + 1 < len(t7.rows) and len(t7.rows[row_idx + 1].cells) > 1:
                 _set_cell_text(t7.rows[row_idx + 1].cells[1], comment)
+            _set_row_cant_split(t7.rows[row_idx], keep_with_next=True)
+            if row_idx + 1 < len(t7.rows):
+                _set_row_cant_split(t7.rows[row_idx + 1])
 
     if bilat and bilat.themen_ma and "themen" in tables and len(tables["themen"].rows) > 1:
         _set_cell_text(tables["themen"].rows[1].cells[0], bilat.themen_ma)
