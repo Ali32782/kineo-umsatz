@@ -16,6 +16,26 @@ def test_months_for_period_hj1():
     assert months_for_period("HJ1 2026") == list(range(1, 7))
 
 
+def test_list_assignable_fk_includes_ceo_coo_and_teamleads():
+    from ma_access import list_assignable_fk_users
+
+    init_db()
+    db = SessionLocal()
+    try:
+        options = list_assignable_fk_users(db)
+        by_user = {o["username"]: o for o in options}
+        assert "ali" in by_user
+        assert by_user["ali"]["role"] == "ceo"
+        assert "sereina" in by_user
+        assert by_user["sereina"]["role"] == "coo"
+        assert "clara" in by_user
+        assert "hanna" in by_user
+        assert options[0]["username"] == "ali"
+        assert options[1]["username"] == "sereina"
+    finally:
+        db.close()
+
+
 def test_teamlead_sees_assigned_mas_by_fk():
     init_db()
     db = SessionLocal()

@@ -1331,7 +1331,9 @@ function AdminPage() {
     <select style={inp({ width: "100%", boxSizing: "border-box" })} value={value || ""} onChange={e => onChange(e.target.value || null)}>
       <option value="">— Keine FK —</option>
       {teamleads.map(t => (
-        <option key={t.username} value={t.username}>{t.full_name} ({t.team || t.role})</option>
+        <option key={t.username} value={t.username}>
+          {t.full_name} ({t.team || formatRoleLabel(t.role)})
+        </option>
       ))}
     </select>
   )

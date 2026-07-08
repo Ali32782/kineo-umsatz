@@ -113,16 +113,20 @@ def filter_mas_for_user(
     return visible
 
 
+ASSIGNABLE_FK_ROLES = ("ceo", "coo", "teamlead")
+_FK_ROLE_ORDER = {"ceo": 0, "coo": 1, "teamlead": 2}
+
+
 def list_assignable_fk_users(db):
-    """Teamleads/SL für Admin-Dropdown."""
+    """Führungspersonen für Admin-Dropdown: CEO, COO, Teamleads."""
     from database import User
 
     users = (
         db.query(User)
-        .filter(User.is_active == True, User.role.in_(("teamlead", "sl")))
-        .order_by(User.full_name)
+        .filter(User.is_active == True, User.role.in_(ASSIGNABLE_FK_ROLES))
         .all()
     )
+    users.sort(key=lambda u: (_FK_ROLE_ORDER.get(u.role, 9), (u.full_name or u.username or "").lower()))
     return [
         {
             "username": u.username,
