@@ -30,8 +30,14 @@ def test_list_assignable_fk_includes_ceo_coo_and_teamleads():
         assert by_user["sereina"]["role"] == "coo"
         assert "clara" in by_user
         assert "hanna" in by_user
-        assert options[0]["username"] == "ali"
-        assert options[1]["username"] == "sereina"
+        assert "raphael" not in by_user
+        assert "helen" not in by_user
+        raphael = db.query(User).filter_by(username="raphael").first()
+        helen = db.query(User).filter_by(username="helen").first()
+        assert raphael.role == "sl"
+        assert helen.role == "sl"
+        andrina = db.query(MAStammdaten).filter_by(name="Andrina.K").first()
+        assert andrina.role == "sl"
     finally:
         db.close()
 

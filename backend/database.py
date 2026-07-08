@@ -290,6 +290,22 @@ def _backfill_user_linked_ma():
         db.close()
 
 
+def _backfill_standortlead_user_roles():
+    """Raphael und Helen sind Standortleads (sl), keine Teamleads."""
+    db = SessionLocal()
+    try:
+        changed = False
+        for username in ("raphael", "helen"):
+            user = db.query(User).filter_by(username=username).first()
+            if user and user.role == "teamlead":
+                user.role = "sl"
+                changed = True
+        if changed:
+            db.commit()
+    finally:
+        db.close()
+
+
 def _backfill_ma_fk_usernames():
     """Initiale FK-Zuordnung: Teamlead pro Standort-Team."""
     db = SessionLocal()
@@ -543,6 +559,7 @@ def init_db():
     run_migration_once("ma_teams_canonical_v1", _backfill_ma_teams)
     run_migration_once("departed_mas_v1", _backfill_departed_mas)
     run_migration_once("user_linked_ma_v1", _backfill_user_linked_ma)
+    run_migration_once("sl_user_roles_v1", _backfill_standortlead_user_roles)
     run_migration_once("ma_fk_usernames_v1", _backfill_ma_fk_usernames)
     _backfill_sereina_coo()
 
@@ -564,9 +581,9 @@ def seed_initial_data():
                  email="clara.benning@kineo.swiss", hashed_password=hash_password("kineo2026")),
             User(username="hanna", full_name="Hanna Raffeiner", role="teamlead", team="Thalwil",
                  email="hanna.raffeiner@kineo.swiss", hashed_password=hash_password("kineo2026")),
-            User(username="raphael", full_name="Raphael H.", role="teamlead", team="Wipkingen",
+            User(username="raphael", full_name="Raphael H.", role="sl", team="Wipkingen",
                  email="raphael.hahner@kineo.swiss", hashed_password=hash_password("kineo2026")),
-            User(username="helen", full_name="Helen S.", role="teamlead", team="Zollikon",
+            User(username="helen", full_name="Helen S.", role="sl", team="Zollikon",
                  email="helen.schwank@kineo.swiss", hashed_password=hash_password("kineo2026")),
         ]
         db.add_all(users)
