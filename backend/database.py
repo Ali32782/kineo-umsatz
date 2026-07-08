@@ -41,6 +41,7 @@ class User(Base):
     reset_token_expires = Column(DateTime, nullable=True)
     role = Column(String, default="teamlead")  # ceo, coo, bd, teamlead
     team = Column(String, nullable=True)        # z.B. "Seefeld", "Wipkingen"
+    linked_ma_name = Column(String, nullable=True)  # eigenes MA-Kürzel (z.B. Clara.B)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -55,6 +56,7 @@ class MAStammdaten(Base):
     is_active = Column(Boolean, default=True)
     eintritt = Column(String, nullable=True)
     austritt = Column(String, nullable=True)
+    fk_username = Column(String, nullable=True)  # zuständige/r Teamlead (users.username)
 
 class UmsatzData(Base):
     __tablename__ = "umsatz_data"
@@ -251,6 +253,65 @@ def _backfill_ma_teams():
         db.close()
 
 
+def _migrate_ma_fk_columns():
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if inspector.has_table("ma_stammdaten"):
+        cols = {c["name"] for c in inspector.get_columns("ma_stammdaten")}
+        if "fk_username" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE ma_stammdaten ADD COLUMN fk_username VARCHAR"))
+    if inspector.has_table("users"):
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "linked_ma_name" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN linked_ma_name VARCHAR"))
+
+
+def _backfill_user_linked_ma():
+    links = {
+        "clara": "Clara.B",
+        "hanna": "Hanna.R",
+        "raphael": "Raphael.H",
+        "helen": "Helen.S",
+    }
+    db = SessionLocal()
+    try:
+        changed = False
+        for username, ma_name in links.items():
+            user = db.query(User).filter_by(username=username).first()
+            if user and not user.linked_ma_name:
+                user.linked_ma_name = ma_name
+                changed = True
+        if changed:
+            db.commit()
+    finally:
+        db.close()
+
+
+def _backfill_ma_fk_usernames():
+    """Initiale FK-Zuordnung: Teamlead pro Standort-Team."""
+    db = SessionLocal()
+    try:
+        teamleads = {
+            u.team: u.username
+            for u in db.query(User).filter(User.role == "teamlead", User.team.isnot(None)).all()
+        }
+        changed = False
+        for ma in db.query(MAStammdaten).all():
+            if ma.fk_username:
+                continue
+            fk = teamleads.get(ma.team)
+            if fk:
+                ma.fk_username = fk
+                changed = True
+        if changed:
+            db.commit()
+    finally:
+        db.close()
+
+
 def _migrate_bilat_flow_phase():
     from sqlalchemy import inspect, text
     inspector = inspect(engine)
@@ -266,6 +327,7 @@ def _migrate_bilat_flow_phase():
 def migrate_schema():
     """Lightweight schema migrations (Spalten/Tabellen) — ohne Stammdaten zu überschreiben."""
     _migrate_bilat_flow_phase()
+    _migrate_ma_fk_columns()
     if not IS_SQLITE:
         migrate_legacy_schedule_sets()
         _backfill_user_emails()
@@ -480,6 +542,8 @@ def init_db():
     run_migration_once("schedule_halbtag_units_v1", migrate_schedule_halbtag_units)
     run_migration_once("ma_teams_canonical_v1", _backfill_ma_teams)
     run_migration_once("departed_mas_v1", _backfill_departed_mas)
+    run_migration_once("user_linked_ma_v1", _backfill_user_linked_ma)
+    run_migration_once("ma_fk_usernames_v1", _backfill_ma_fk_usernames)
     _backfill_sereina_coo()
 
 def seed_initial_data():

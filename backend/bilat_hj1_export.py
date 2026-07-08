@@ -297,7 +297,11 @@ def _find_tables(doc: Document) -> dict:
     return found
 
 
-def _find_fk(db: Session, team: str | None) -> User | None:
+def _find_fk(db: Session, team: str | None, fk_username: str | None = None) -> User | None:
+    if fk_username:
+        fk = db.query(User).filter_by(username=fk_username).first()
+        if fk:
+            return fk
     if not team or team in ("Management", "Office"):
         return db.query(User).filter(User.role.in_(("coo", "ceo"))).first()
     lead = db.query(User).filter(User.role == "teamlead", User.team == team).first()
@@ -569,7 +573,7 @@ def fill_hj1_template(
     zeg_values = [r["zeg"]["zeg_b"] for r in perf_rows if r["zeg"].get("zeg_b") is not None]
     avg_zeg = sum(zeg_values) / len(zeg_values) if zeg_values else None
 
-    fk = _find_fk(db, ma.team)
+    fk = _find_fk(db, ma.team, ma.fk_username)
     fk_name = fk.full_name if fk and fk.full_name else None
     standort_funktion = _standort_funktion(ma)
 

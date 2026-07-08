@@ -1225,14 +1225,16 @@ function AdminPage() {
   const [scheduleScope, setScheduleScope] = useState("from")
   const [scheduleEditYM, setScheduleEditYM] = useState("")
   const [msg, setMsg] = useState(null)
-  const [newMA, setNewMA] = useState({name:"",display_name:"",team:"Seefeld",role:"therapeut",bg_pct:1.0,eintritt:"",austritt:""})
+  const [newMA, setNewMA] = useState({name:"",display_name:"",team:"Seefeld",role:"therapeut",bg_pct:1.0,eintritt:"",austritt:"",fk_username:""})
   const [showNewMA, setShowNewMA] = useState(false)
   const [newFeiertag, setNewFeiertag] = useState({date_str:"",name:"",faktor:1.0})
+  const [teamleads, setTeamleads] = useState([])
 
   const loadMAs = () => api("/api/admin/ma").then(setMas).catch(console.error)
+  const loadTeamleads = () => api("/api/admin/teamleads").then(setTeamleads).catch(console.error)
   const loadFeiertage = () => api(`/api/admin/feiertage/${feiertagYear}`).then(setFeiertage).catch(console.error)
 
-  useEffect(() => { loadMAs() }, [])
+  useEffect(() => { loadMAs(); loadTeamleads() }, [])
   useEffect(() => { if (tab === "feiertage") loadFeiertage() }, [feiertagYear, tab])
 
   const scheduleDefaultFrom = (ma) => {
@@ -1319,6 +1321,15 @@ function AdminPage() {
   const inp = (style={}) => ({padding:"8px 10px",border:"1.5px solid #DDD",borderRadius:6,fontSize:13,...style})
   const btn = (bg="#004869",color="white") => ({background:bg,color,border:"none",padding:"8px 16px",borderRadius:6,cursor:"pointer",fontWeight:600,fontSize:13})
 
+  const fkSelect = (value, onChange) => (
+    <select style={inp({ width: "100%", boxSizing: "border-box" })} value={value || ""} onChange={e => onChange(e.target.value || null)}>
+      <option value="">— Keine FK —</option>
+      {teamleads.map(t => (
+        <option key={t.username} value={t.username}>{t.full_name} ({t.team || t.role})</option>
+      ))}
+    </select>
+  )
+
   const tabs = [["ma","Mitarbeiter", Users],["schedule","Arbeitstag-Muster", Calendar],["feiertage","Feiertage", Calendar]]
 
   return (
@@ -1365,6 +1376,8 @@ function AdminPage() {
                   {ROLLEN.map(r => <option key={r} value={r}>{formatRoleLabel(r)}</option>)}</select></div>
                 <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:4}}>BG%</div>
                 <input type="number" min="0.1" max="1" step="0.1" style={inp({width:"100%",boxSizing:"border-box"})} value={newMA.bg_pct} onChange={e=>setNewMA({...newMA,bg_pct:+e.target.value})} /></div>
+                <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:4}}>Führungskraft (Teamlead)</div>
+                {fkSelect(newMA.fk_username, v => setNewMA({ ...newMA, fk_username: v }))}</div>
               </div>
               <div style={{display:"flex",gap:8,marginTop:16}}>
                 <button style={btn()} onClick={()=>saveMA(true)}>Speichern</button>
@@ -1375,7 +1388,7 @@ function AdminPage() {
 
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
             <thead><tr style={{background:"#004869",color:"white"}}>
-              {["Name","Anzeige","Team","Rolle","BG%","Eintritt","Austritt","Status","Aktionen"].map(h=>(
+              {["Name","Anzeige","Team","Rolle","FK","BG%","Eintritt","Austritt","Status","Aktionen"].map(h=>(
                 <th key={h} style={{padding:"10px 12px",textAlign:"left",fontWeight:700}}>{h}</th>
               ))}
             </tr></thead>
@@ -1383,9 +1396,10 @@ function AdminPage() {
               {mas.map((ma,i) => editMA?.name===ma.name ? (
                 <tr key={ma.name} style={{background:"#F0F8F0"}}>
                   <td style={{padding:"8px 12px",fontWeight:700}}>{ma.name}</td>
-                  {[["display_name",180],["team",null,STANDORTE.filter(s=>s!=="Office")],["role",null,ROLLEN],["bg_pct",60],["eintritt",120],["austritt",120]].map(([k,w,opts])=>(
+                  {[["display_name",180],["team",null,STANDORTE.filter(s=>s!=="Office")],["role",null,ROLLEN],["fk_username",null],["bg_pct",60],["eintritt",120],["austritt",120]].map(([k,w,opts])=>(
                     <td key={k} style={{padding:"4px 8px"}}>
-                      {opts ? <select style={inp()} value={editMA[k]||""} onChange={e=>setEditMA({...editMA,[k]:e.target.value})}>
+                      {k === "fk_username" ? fkSelect(editMA.fk_username, v => setEditMA({ ...editMA, fk_username: v }))
+                      : opts ? <select style={inp()} value={editMA[k]||""} onChange={e=>setEditMA({...editMA,[k]:e.target.value})}>
                         {opts.map(o => <option key={o} value={o}>{k === "role" ? formatRoleLabel(o) : o}</option>)}</select>
                       : <input style={inp({width:w||"100%"})} value={editMA[k]||""} onChange={e=>setEditMA({...editMA,[k]:e.target.value})} />}
                     </td>
@@ -1402,6 +1416,7 @@ function AdminPage() {
                   <td style={{padding:"8px 12px"}}>{ma.display_name}</td>
                   <td style={{padding:"8px 12px",color:"#555"}}>{ma.team}</td>
                   <td style={{padding:"8px 12px",color:"#555"}}>{formatRoleLabel(ma.role)}</td>
+                  <td style={{padding:"8px 12px",color:"#555",fontSize:12}}>{ma.fk_display_name || ma.fk_username || "—"}</td>
                   <td style={{padding:"8px 12px",textAlign:"center"}}>{(ma.bg_pct*100).toFixed(0)}%</td>
                   <td style={{padding:"8px 12px",fontSize:12,color:"#777"}}>{ma.eintritt||"—"}</td>
                   <td style={{padding:"8px 12px",fontSize:12,color:"#777"}}>{ma.austritt||"—"}</td>

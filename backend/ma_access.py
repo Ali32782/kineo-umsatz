@@ -1,4 +1,4 @@
-"""Sichtbarkeit von MA-Datensätzen nach Rolle, Stammdaten-Team und Arbeitsplan."""
+"""Sichtbarkeit von MA-Datensätzen nach Rolle und expliziter FK-Zuordnung."""
 from __future__ import annotations
 
 from datetime import date
@@ -7,7 +7,7 @@ from auth import has_full_access
 
 TEAM_SCOPE_ROLES = frozenset({"teamlead", "sl"})
 
-# FK-Heimatstandort — falls in der DB falsch gesetzt (z. B. nach manuellem Edit)
+# FK-Heimatstandort — einmalige Korrektur (siehe database._backfill_ma_teams)
 CANONICAL_MA_TEAMS: dict[str, str] = {
     "Valerio.S": "Escher Wyss",
 }
@@ -50,19 +50,11 @@ def ma_works_at_standort(
 _SCHEDULE_ONLY_EXCLUDED_ROLES = frozenset({"management", "bd", "ceo", "coo"})
 
 
-def ma_visible_to_user(
-    ma,
-    user,
-    db,
-    *,
-    year: int | None = None,
-    months: list[int] | None = None,
-) -> bool:
-    if has_full_access(user.role):
-        return True
+def _legacy_team_visible(ma, user, db, *, year: int | None, months: list[int] | None) -> bool:
+    """Fallback wenn fk_username noch nicht gesetzt — Team/Arbeitsplan."""
     team = normalize_team(user.team)
-    if user.role not in TEAM_SCOPE_ROLES or not team:
-        return True
+    if not team:
+        return False
     if normalize_team(ma.team) == team:
         return True
     if (ma.role or "") in _SCHEDULE_ONLY_EXCLUDED_ROLES:
@@ -75,6 +67,29 @@ def ma_visible_to_user(
     return ma_works_at_standort(ma.name, team, db, y, months)
 
 
+def ma_visible_to_user(
+    ma,
+    user,
+    db,
+    *,
+    year: int | None = None,
+    months: list[int] | None = None,
+) -> bool:
+    if has_full_access(user.role):
+        return True
+    if user.role not in TEAM_SCOPE_ROLES:
+        return True
+
+    linked = getattr(user, "linked_ma_name", None)
+    if linked and ma.name == linked:
+        return True
+
+    if ma.fk_username:
+        return ma.fk_username == user.username
+
+    return _legacy_team_visible(ma, user, db, year=year, months=months)
+
+
 def filter_mas_for_user(
     mas,
     user,
@@ -85,8 +100,7 @@ def filter_mas_for_user(
 ):
     if has_full_access(user.role):
         return list(mas)
-    team = normalize_team(user.team)
-    if user.role not in TEAM_SCOPE_ROLES or not team:
+    if user.role not in TEAM_SCOPE_ROLES:
         return list(mas)
     seen: set[str] = set()
     visible = []
@@ -97,3 +111,24 @@ def filter_mas_for_user(
             visible.append(ma)
             seen.add(ma.name)
     return visible
+
+
+def list_assignable_fk_users(db):
+    """Teamleads/SL für Admin-Dropdown."""
+    from database import User
+
+    users = (
+        db.query(User)
+        .filter(User.is_active == True, User.role.in_(("teamlead", "sl")))
+        .order_by(User.full_name)
+        .all()
+    )
+    return [
+        {
+            "username": u.username,
+            "full_name": u.full_name or u.username,
+            "team": u.team,
+            "role": u.role,
+        }
+        for u in users
+    ]

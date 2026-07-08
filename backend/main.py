@@ -1097,14 +1097,36 @@ class MACreate(BaseModel):
     bg_pct: float = 1.0
     eintritt: Optional[str] = None
     austritt: Optional[str] = None
+    fk_username: Optional[str] = None
+
+
+def _ma_admin_dict(m: MAStammdaten, fk_users: dict) -> dict:
+    fk = fk_users.get(m.fk_username) if m.fk_username else None
+    return {
+        "id": m.id, "name": m.name, "display_name": m.display_name, "team": m.team,
+        "role": m.role, "bg_pct": m.bg_pct, "is_active": m.is_active,
+        "eintritt": m.eintritt, "austritt": m.austritt,
+        "fk_username": m.fk_username,
+        "fk_display_name": (fk.full_name if fk else None) if m.fk_username else None,
+    }
+
+
+@app.get("/api/admin/teamleads")
+def admin_list_teamleads(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_full_access(current_user)
+    from ma_access import list_assignable_fk_users
+    return list_assignable_fk_users(db)
+
 
 @app.get("/api/admin/ma")
 def admin_get_ma(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     _require_full_access(current_user)
     mas = db.query(MAStammdaten).order_by(MAStammdaten.name).all()
-    return [{"id": m.id, "name": m.name, "display_name": m.display_name, "team": m.team,
-             "role": m.role, "bg_pct": m.bg_pct, "is_active": m.is_active,
-             "eintritt": m.eintritt, "austritt": m.austritt} for m in mas]
+    fk_names = {m.fk_username for m in mas if m.fk_username}
+    fk_users = {}
+    if fk_names:
+        fk_users = {u.username: u for u in db.query(User).filter(User.username.in_(fk_names)).all()}
+    return [_ma_admin_dict(m, fk_users) for m in mas]
 
 @app.post("/api/admin/ma")
 def admin_create_ma(data: MACreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
