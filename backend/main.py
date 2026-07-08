@@ -586,6 +586,7 @@ def get_ytd(
         year=year,
         months=list(range(1, through_month + 1)) if through_month else None,
     )
+    umsatz_all = db.query(UmsatzData).filter(UmsatzData.year == year).all()
     inputs_all = db.query(MonthlyInput).filter(MonthlyInput.year == year).all()
 
     umsatz_map = {(r.ma_name, r.month): r.umsatz for r in umsatz_all}
