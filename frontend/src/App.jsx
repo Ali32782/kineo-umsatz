@@ -1187,7 +1187,7 @@ function ExportsPage() {
                 </div>
                 <button
                   onClick={() => download(`/api/export/bilat-single/${year}/${bilat_month}/${ma.name}`,
-                    `Bilat_${ma.name.replace(".","_")}_${months[bilat_month-1]}_${year}.docx`,
+                    `Bilat_${ma.name.replace(".","_").replace(" ","_")}_HJ1_${year}.docx`,
                     `bilat_${ma.name}`)}
                   disabled={loading[`bilat_${ma.name}`]}
                   style={{ background:"#E4EEF3",color:"#004869",border:"none",padding:"6px 14px",

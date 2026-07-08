@@ -728,9 +728,9 @@ async def export_bilat_single(
             raise HTTPException(status_code=403, detail="Keine Berechtigung")
     from bilat_export import generate_single_bilat
     path = generate_single_bilat(year, month, ma_name, db)
-    safe = ma_name.replace(".","_")
+    safe = ma_name.replace(".", "_").replace(" ", "_")
     return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        filename=f"Bilat_{safe}_{MONTH_NAMES_DE[month]}_{year}.docx")
+                        filename=f"Bilat_{safe}_HJ1_{year}.docx")
 
 
 
