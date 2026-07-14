@@ -1428,10 +1428,21 @@ function ExportsPage() {
     setLoading(l => ({...l,[key]:true}))
     try {
       const res = await fetch(`${API}${url}`, { headers: { Authorization: `Bearer ${token}` } })
-      if (!res.ok) throw new Error(await res.text())
+      if (!res.ok) {
+        let detail = await res.text()
+        try { detail = JSON.parse(detail).detail || detail } catch { /* keep */ }
+        throw new Error(typeof detail === "string" ? detail : "Download fehlgeschlagen")
+      }
       const blob = await res.blob()
-      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click()
-    } catch(e) { alert("Fehler: " + e.message) }
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(a.href)
+    } catch(e) {
+      const msg = e.message === "Failed to fetch"
+        ? "Verbindung zum Server fehlgeschlagen — bitte neu laden und erneut versuchen."
+        : e.message
+      alert("Fehler: " + msg)
+    }
     setLoading(l => ({...l,[key]:false}))
   }
 
@@ -2766,17 +2777,37 @@ function BilatDataPage() {
     try {
       const token = localStorage.getItem("token")
       const month = faktenblatt.through_month
-      const res = await fetch(`${API}/api/export/bilat-single/${year}/${month}/${encodeURIComponent(selected.name)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!res.ok) throw new Error("Download fehlgeschlagen")
+      const q = `?period_label=${encodeURIComponent(period)}`
+      const res = await fetch(
+        `${API}/api/export/bilat-single/${year}/${month}/${encodeURIComponent(selected.name)}${q}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (!res.ok) {
+        let detail = `Download fehlgeschlagen (${res.status})`
+        try {
+          const data = await res.json()
+          detail = (typeof data.detail === "string" ? data.detail : detail) || detail
+        } catch { /* ignore */ }
+        throw new Error(detail)
+      }
       const blob = await res.blob()
+      if (!blob || blob.size < 100) throw new Error("Leere oder ungültige Word-Datei")
       const a = document.createElement("a")
       a.href = URL.createObjectURL(blob)
       a.download = `Bilat_${selected.display_name || selected.name}_${period}.docx`
+      document.body.appendChild(a)
       a.click()
+      a.remove()
+      URL.revokeObjectURL(a.href)
+      setMsg({ type: "ok", text: "Word-Download gestartet" })
     } catch (e) {
-      setMsg({ type: "err", text: e.message || "Word-Download fehlgeschlagen" })
+      const msg = e?.message || "Word-Download fehlgeschlagen"
+      setMsg({
+        type: "err",
+        text: msg === "Failed to fetch"
+          ? "Verbindung zum Server fehlgeschlagen (CORS/Netzwerk). Bitte Seite neu laden und erneut versuchen."
+          : msg,
+      })
     } finally {
       setWordLoading(false)
     }

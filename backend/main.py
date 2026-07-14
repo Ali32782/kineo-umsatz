@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, status, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, date
@@ -8,6 +8,7 @@ from typing import Optional, List
 from jose import JWTError, jwt
 from pydantic import BaseModel
 import os, io, json
+from urllib.parse import quote
 
 from database import get_db, init_db, get_storage_info, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, MAScheduleSet, Feiertag, Notification, BilatData, QualGoal, MaDocument, QualSignature, MitgliederData
 from calc import (
@@ -34,9 +35,12 @@ CRON_SECRET = os.environ.get("CRON_SECRET", "").strip()
 _cors_extra = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
 CORS_ORIGINS = list(dict.fromkeys([
     APP_BASE_URL,
+    "https://kineo-leadership.onrender.com",
+    "https://kineo-umsatz.onrender.com",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:4173",
+    "http://localhost:3000",
     *_cors_extra,
 ]))
 
@@ -46,9 +50,32 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Cron-Secret"],
+    expose_headers=["Content-Disposition", "Content-Length"],
 )
+
+
+def _download_response(path: str, *, media_type: str, filename: str) -> Response:
+    """Bytes-Response statt FileResponse — CORS-Header bleiben korrekt (kein ACAO *)."""
+    with open(path, "rb") as f:
+        data = f.read()
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    # RFC 5987 für Umlaute in Dateinamen
+    safe_ascii = filename.encode("ascii", "ignore").decode("ascii") or "download.bin"
+    disp = f"attachment; filename=\"{safe_ascii}\"; filename*=UTF-8''{quote(filename)}"
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": disp,
+            "Content-Length": str(len(data)),
+            "Cache-Control": "no-store",
+        },
+    )
 
 # Init DB on startup
 @app.on_event("startup")
@@ -844,11 +871,14 @@ async def export_excel(
 ):
     _require_full_access(current_user)
     from excel_export import generate_excel
-    path = generate_excel(year, db)
-    return FileResponse(
+    try:
+        path = generate_excel(year, db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Excel-Export fehlgeschlagen: {e}") from e
+    return _download_response(
         path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"Kineo_Umsatzanalyse_{year}.xlsx"
+        filename=f"Kineo_Umsatzanalyse_{year}.xlsx",
     )
 
 # ── Bilat Export ──────────────────────────────────────────────────────────
@@ -860,31 +890,54 @@ async def export_bilats(
 ):
     _require_full_access(current_user)
     from bilat_export import generate_bilats_zip
-    path = generate_bilats_zip(year, month, db, current_user, period_label=period_label)
-    return FileResponse(
+    try:
+        path = generate_bilats_zip(year, month, db, current_user, period_label=period_label)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"ZIP-Export fehlgeschlagen: {e}") from e
+    return _download_response(
         path,
         media_type="application/zip",
-        filename=f"Kineo_Bilats_{MONTH_NAMES_DE[month]}_{year}.zip"
+        filename=f"Kineo_Bilats_{MONTH_NAMES_DE[month]}_{year}.zip",
     )
 
-# ── Health ────────────────────────────────────────────────────────────────
+
 @app.get("/api/export/bilat-single/{year}/{month}/{ma_name}")
 async def export_bilat_single(
     year: int, month: int, ma_name: str,
+    period_label: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    from bilat_hj1_export import canonical_period_label
     from ma_access import TEAM_SCOPE_ROLES, ma_visible_to_user
 
+    period = canonical_period_label(period_label, year, month)
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+    if not ma:
+        raise HTTPException(status_code=404, detail="MA nicht gefunden")
     if current_user.role in TEAM_SCOPE_ROLES:
-        ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
-        if not ma or not ma_visible_to_user(ma, current_user, db, year=year, months=list(range(1, month + 1))):
+        if not ma_visible_to_user(ma, current_user, db, year=year, months=list(range(1, month + 1))):
             raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    elif not has_full_access(current_user.role):
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+
     from bilat_export import generate_single_bilat
-    path = generate_single_bilat(year, month, ma_name, db)
+    try:
+        path = generate_single_bilat(year, month, ma_name, db, period_label=period)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"Keine Word-Vorlage: {e}") from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Word-Export fehlgeschlagen: {e}") from e
+
     safe = ma_name.replace(".", "_").replace(" ", "_")
-    return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        filename=f"Bilat_{safe}_HJ1_{year}.docx")
+    half = "HJ1" if month <= 6 else "HJ2"
+    return _download_response(
+        path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"Bilat_{safe}_{half}_{year}.docx",
+    )
 
 
 
