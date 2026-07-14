@@ -68,6 +68,19 @@ class UmsatzData(Base):
     uploaded_at = Column(DateTime, default=datetime.utcnow)
     uploaded_by = Column(String)
 
+
+class MitgliederData(Base):
+    """Monats-Mitgliederzahlen (z.B. Ilaria / CC)."""
+    __tablename__ = "mitglieder_data"
+    id = Column(Integer, primary_key=True)
+    ma_name = Column(String, nullable=False, index=True)
+    year = Column(Integer, nullable=False, index=True)
+    month = Column(Integer, nullable=False)
+    count = Column(Float, default=0.0)
+    notes = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    updated_by = Column(String)
+
 class MonthlyInput(Base):
     __tablename__ = "monthly_inputs"
     id = Column(Integer, primary_key=True)
@@ -163,6 +176,12 @@ class BilatData(Base):
     kat_d_self = Column(Integer, nullable=True)
     kat_d_fk = Column(Integer, nullable=True)
     kat_d_comment = Column(Text, nullable=True)
+    kat_e_self = Column(Integer, nullable=True)
+    kat_e_fk = Column(Integer, nullable=True)
+    kat_e_comment = Column(Text, nullable=True)
+    kat_f_self = Column(Integer, nullable=True)
+    kat_f_fk = Column(Integer, nullable=True)
+    kat_f_comment = Column(Text, nullable=True)
     # Vereinbarungen (JSON string)
     vereinbarungen = Column(Text, nullable=True)
     # Gesprächsnotizen
@@ -484,6 +503,26 @@ def _migrate_bilat_flow_phase():
             conn.execute(text("UPDATE bilat_data SET flow_phase = 'done' WHERE flow_phase IS NULL AND kat_a_fk IS NOT NULL AND kat_a_self IS NOT NULL"))
 
 
+def _migrate_bilat_kat_ef():
+    """Optionale Kategorien E/F für digitale Bilats."""
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    if not inspector.has_table("bilat_data"):
+        return
+    cols = {c["name"] for c in inspector.get_columns("bilat_data")}
+    needed = [
+        "kat_e_self", "kat_e_fk", "kat_e_comment",
+        "kat_f_self", "kat_f_fk", "kat_f_comment",
+    ]
+    missing = [c for c in needed if c not in cols]
+    if not missing:
+        return
+    with engine.begin() as conn:
+        for col in missing:
+            typ = "TEXT" if col.endswith("_comment") else "INTEGER"
+            conn.execute(text(f"ALTER TABLE bilat_data ADD COLUMN {col} {typ}"))
+
+
 def _migrate_ma_documents_content():
     """BYTEA/BLOB für Ablage-Dateien — Free-Tier ohne Persistent Disk."""
     from sqlalchemy import inspect, text
@@ -504,6 +543,7 @@ def _migrate_ma_documents_content():
 def migrate_schema():
     """Lightweight schema migrations (Spalten/Tabellen) — ohne Stammdaten zu überschreiben."""
     _migrate_bilat_flow_phase()
+    _migrate_bilat_kat_ef()
     _migrate_ma_fk_columns()
     _migrate_ma_documents_content()
     if not IS_SQLITE:

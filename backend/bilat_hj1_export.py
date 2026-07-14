@@ -565,6 +565,27 @@ def build_faktenblatt(
             "umsatz": round(pr["umsatz"] or 0),
         })
 
+    mitglieder_months = []
+    if kpi_type == "mitglieder":
+        from database import MitgliederData
+        rows = (
+            db.query(MitgliederData)
+            .filter(
+                MitgliederData.ma_name == ma.name,
+                MitgliederData.year == year,
+                MitgliederData.month <= through_month,
+            )
+            .order_by(MitgliederData.month)
+            .all()
+        )
+        for r in rows:
+            mitglieder_months.append({
+                "month": r.month,
+                "label": f"{MONTH_NAMES_DE[r.month]} {year}",
+                "count": r.count,
+                "notes": r.notes,
+            })
+
     return {
         "ma_name": ma.name,
         "display_name": ma.display_name or ma.name,
@@ -576,13 +597,12 @@ def build_faktenblatt(
         "avg_zeg_pct": _zeg_pct(avg_zeg),
         "performance_comment": _performance_comment(avg_zeg, perf_range),
         "months": months,
+        "mitglieder_months": mitglieder_months,
         "qual_goals": qual_goals,
         "rating_categories": rating_cats,
         "leitfaden_points": points,
-        "flow_supports_keys": ["a", "b", "c", "d"],
-        "extended_rating_keys": [
-            c["key"] for c in rating_cats if c["key"] not in ("a", "b", "c", "d")
-        ],
+        "flow_supports_keys": ["a", "b", "c", "d", "e", "f"],
+        "extended_rating_keys": [],
         "kpi_type": CC_KPI_TYPE.get(ma.name),
         "kpi_label": cc_kpi_label(ma.name),
         "period_label": period,

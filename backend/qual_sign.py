@@ -10,6 +10,7 @@ from database import BilatData, MAStammdaten, QualSignature, User
 from documents_store import get_signature, save_bytes_document, signature_as_dict
 from qual_goals import goals_as_dicts, list_qual_goals
 from simple_pdf import build_text_pdf
+from auth import names_match_confirm
 
 
 def supersede_signatures(db: Session, ma_name: str, year: int, period_label: str) -> int:
@@ -46,6 +47,12 @@ def sign_qual_goals(
         raise ValueError("Bitte Namen der Führungskraft zur Bestätigung eintragen.")
     if len(ma_name_confirm) < 2:
         raise ValueError("Bitte Namen der Mitarbeiterin / des Mitarbeiters zur Bestätigung eintragen.")
+
+    expected = ma.display_name or ma.name
+    if not names_match_confirm(expected, ma_name_confirm):
+        raise ValueError(
+            f"MA-Name stimmt nicht mit Stammdaten überein (erwartet: {expected})."
+        )
 
     if vereinbarungen is None:
         bilat = (

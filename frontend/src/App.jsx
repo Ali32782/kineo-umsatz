@@ -289,6 +289,15 @@ function NotificationBell({ setPage }) {
 // ── Layout ─────────────────────────────────────────────────────────────────
 function Layout({ children, page, setPage }) {
   const auth = useAuth()
+  const [navOpen, setNavOpen] = useState(false)
+  const [isNarrow, setIsNarrow] = useState(typeof window !== "undefined" && window.innerWidth < 820)
+  useEffect(() => {
+    const onResize = () => setIsNarrow(window.innerWidth < 820)
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [])
+  useEffect(() => { setNavOpen(false) }, [page])
+
   const nav = [
     { id: "dashboard", label: "Dashboard" },
     { id: "upload", label: "Daten eingeben", roles: FULL_ACCESS_ROLES },
@@ -302,41 +311,67 @@ function Layout({ children, page, setPage }) {
     { id: "admin", label: "Admin", roles: FULL_ACCESS_ROLES },
   ].filter(n => !n.roles || n.roles.includes(auth.user?.role))
 
+  const sidebar = (
+    <div style={{
+      width: isNarrow ? "min(280px, 86vw)" : 220,
+      background: CD.darkBlue, color: "white", flexShrink: 0,
+      display: "flex", flexDirection: "column",
+      position: isNarrow ? "fixed" : "relative",
+      top: 0, left: 0, bottom: 0, zIndex: 40,
+      transform: isNarrow && !navOpen ? "translateX(-105%)" : "none",
+      transition: "transform 0.2s ease",
+      boxShadow: isNarrow && navOpen ? "8px 0 24px rgba(0,0,0,0.25)" : "none",
+    }}>
+      <div style={{ padding: "24px 20px 20px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+        <KineoLogo variant="white" height={34} />
+        <div style={{ fontSize: 10, opacity: 0.45, marginTop: 10, letterSpacing: 2, textTransform: "uppercase", fontFamily: CD.fontDisplay }}>Analytics</div>
+        {hasFullAccess(auth.user?.role) && <NotificationBell setPage={setPage} />}
+      </div>
+      <nav style={{ flex: 1, overflowY: "auto" }}>
+        {nav.map(n => (
+          <button key={n.id} onClick={() => setPage(n.id)} style={{
+            width: "100%", padding: "11px 20px", background: page === n.id ? "rgba(255,255,255,0.12)" : "transparent",
+            border: "none", borderLeft: page === n.id ? "3px solid #fa4616" : "3px solid transparent",
+            color: page === n.id ? "white" : "rgba(255,255,255,0.7)", textAlign: "left", cursor: "pointer", fontSize: 13,
+            display: "flex", alignItems: "center", gap: 10,
+          }}>
+            <NavIcon name={n.id} size={17} color={page === n.id ? "#fa4616" : "rgba(255,255,255,0.65)"} />
+            {n.label}
+          </button>
+        ))}
+      </nav>
+      <div style={{ padding: "16px 20px", borderTop: "1px solid rgba(255,255,255,0.15)" }}>
+        <div style={{ fontSize: 12, opacity: 0.8 }}>{auth.user?.full_name}</div>
+        <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 8 }}>{formatRoleLabel(auth.user?.role)}</div>
+        <button onClick={auth.logout} style={{
+          background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
+          color: "white", padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12,
+          display: "flex", alignItems: "center", gap: 6,
+        }}><LogOut size={14} /> Abmelden</button>
+      </div>
+    </div>
+  )
+
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: CD.bg, fontFamily: CD.fontBody }}>
-      {/* Sidebar */}
-      <div style={{ width: 220, background: CD.darkBlue, color: "white", flexShrink: 0, display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "24px 20px 20px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-          <KineoLogo variant="white" height={34} />
-          <div style={{ fontSize: 10, opacity: 0.45, marginTop: 10, letterSpacing: 2, textTransform: "uppercase", fontFamily: CD.fontDisplay }}>Analytics</div>
-          {hasFullAccess(auth.user?.role) && <NotificationBell setPage={setPage} />}
-        </div>
-        <nav style={{ flex: 1 }}>
-          {nav.map(n => (
-            <button key={n.id} onClick={() => setPage(n.id)} style={{
-              width: "100%", padding: "11px 20px", background: page === n.id ? "rgba(255,255,255,0.12)" : "transparent",
-              border: "none", borderLeft: page === n.id ? "3px solid #fa4616" : "3px solid transparent",
-              color: page === n.id ? "white" : "rgba(255,255,255,0.7)", textAlign: "left", cursor: "pointer", fontSize: 13,
-              display: "flex", alignItems: "center", gap: 10,
-            }}>
-              <NavIcon name={n.id} size={17} color={page === n.id ? "#fa4616" : "rgba(255,255,255,0.65)"} />
-              {n.label}
+      {isNarrow && navOpen && (
+        <div onClick={() => setNavOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 30 }} />
+      )}
+      {sidebar}
+      <div style={{ flex: 1, overflow: "auto", minWidth: 0 }}>
+        {isNarrow && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
+            background: CD.darkBlue, color: "white", position: "sticky", top: 0, zIndex: 20,
+          }}>
+            <button type="button" onClick={() => setNavOpen(o => !o)}
+              style={{ background: "rgba(255,255,255,0.12)", border: "none", color: "white", padding: "8px 12px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 }}>
+              Menü
             </button>
-          ))}
-        </nav>
-        <div style={{ padding: "16px 20px", borderTop: "1px solid rgba(255,255,255,0.15)" }}>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>{auth.user?.full_name}</div>
-          <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 8 }}>{formatRoleLabel(auth.user?.role)}</div>
-          <button onClick={auth.logout} style={{
-            background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
-            color: "white", padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12,
-            display: "flex", alignItems: "center", gap: 6,
-          }}><LogOut size={14} /> Abmelden</button>
-        </div>
-      </div>
-      {/* Main */}
-      <div style={{ flex: 1, overflow: "auto" }}>
-        <div style={{ padding: "32px 36px" }}>{children}</div>
+            <KineoLogo variant="white" height={26} />
+          </div>
+        )}
+        <div style={{ padding: isNarrow ? "18px 16px" : "32px 36px" }}>{children}</div>
       </div>
     </div>
   )
@@ -634,6 +669,8 @@ function UploadPage() {
   const [csvPreview, setCsvPreview] = useState(null)
   const [abFile, setAbFile] = useState(null)
   const [abPreview, setAbPreview] = useState(null)
+  const [mitgliederFile, setMitgliederFile] = useState(null)
+  const [mitgliederCount, setMitgliederCount] = useState("")
   const [importedMAs, setImportedMAs] = useState(() => new Set())
   const [maList, setMaList] = useState([])
   const [inputs, setInputs] = useState({})
@@ -644,14 +681,14 @@ function UploadPage() {
   const months = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"]
 
   useEffect(() => {
-    api(`/api/ma?year=${year}&month=${month}`).then(setMaList).catch(console.error)
+    api(`/api/ma?year=${year}&month=${month}`).then(setMaList).catch(e => setMsg({ type: "err", text: e.message }))
   }, [year, month])
   useEffect(() => {
     const fetchId = ++inputsFetchRef.current
     setImportedMAs(new Set())
     api(`/api/inputs/${year}/${month}`).then(data => {
       if (fetchId === inputsFetchRef.current) setInputs(data)
-    }).catch(console.error)
+    }).catch(e => setMsg({ type: "err", text: e.message }))
   }, [year, month])
 
   const uploadCSV = async () => {
@@ -714,6 +751,44 @@ function UploadPage() {
       setMsg({ type: "err", text: data.detail || "Import fehlgeschlagen" })
     }
     setSaving(false)
+  }
+
+  const uploadMitgliederCsv = async () => {
+    if (!mitgliederFile) return
+    setSaving(true); setMsg(null)
+    const fd = new FormData()
+    fd.append("file", mitgliederFile)
+    fd.append("year", String(year))
+    fd.append("ma_name", "Ilaria.F")
+    const token = localStorage.getItem("token")
+    const res = await fetch(`${API}/api/mitglieder/upload-csv`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd,
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) setMsg({ type: "ok", text: data.message || "Mitglieder importiert" })
+    else setMsg({ type: "err", text: data.detail || "Import fehlgeschlagen" })
+    setSaving(false)
+  }
+
+  const saveMitgliederManual = async () => {
+    const n = parseFloat(String(mitgliederCount).replace(",", "."))
+    if (!Number.isFinite(n)) {
+      setMsg({ type: "err", text: "Bitte gültige Mitgliederzahl eingeben" })
+      return
+    }
+    setSaving(true); setMsg(null)
+    try {
+      const res = await api("/api/mitglieder", {
+        method: "POST",
+        body: JSON.stringify([{ ma_name: "Ilaria.F", year, month, count: n }]),
+      })
+      setMsg({ type: "ok", text: res.message || "Mitgliederzahl gespeichert" })
+      setMitgliederCount("")
+    } catch (e) {
+      setMsg({ type: "err", text: e.message })
+    } finally {
+      setSaving(false)
+    }
   }
 
   const saveInputs = async () => {
@@ -830,6 +905,29 @@ function UploadPage() {
               </div>
             </div>
           )}
+
+          <div style={{ marginTop: 28, paddingTop: 24, borderTop: "1px solid #EEE" }}>
+            <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", color: "#004869" }}>Mitgliederzahlen (Ilaria / CC)</h3>
+            <p style={{ margin: "0 0 14px", fontSize: 12, color: "#666" }}>
+              CSV mit Spalten <em>month,count</em> (optional ma_name) — oder manuell für den Monat oben.
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", marginBottom: 12 }}>
+              <input type="file" accept=".csv,.txt" onChange={e => setMitgliederFile(e.target.files?.[0] || null)} />
+              <button type="button" onClick={uploadMitgliederCsv} disabled={saving || !mitgliederFile}
+                style={{ background: "#004869", color: "white", border: "none", padding: "8px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
+                CSV importieren
+              </button>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+              <span style={{ fontSize: 13, color: "#555" }}>{months[month - 1]} {year}:</span>
+              <input value={mitgliederCount} onChange={e => setMitgliederCount(e.target.value)} placeholder="Anzahl"
+                style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, width: 100, fontSize: 13 }} />
+              <button type="button" onClick={saveMitgliederManual} disabled={saving}
+                style={{ background: "white", color: "#004869", border: "1px solid #004869", padding: "8px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
+                Speichern
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1952,8 +2050,12 @@ const KAT_LABELS = {
   a: "Profitabilität & Auslastung",
   b: "Qualität & Operational Excellence",
   c: "Satisfaction Intern – Team & Kultur",
-  d: "Satisfaction Extern – Patienten & Zuweiser"
+  d: "Satisfaction Extern – Patienten & Zuweiser",
+  e: "Entwicklung & Potenzial",
+  f: "Zusammenarbeit & Kommunikation",
 }
+const KAT_KEYS_REQUIRED = ["a", "b", "c", "d"]
+const KAT_KEYS_ALL = ["a", "b", "c", "d", "e", "f"]
 
 const QUAL_STATUSES = ["offen", "läuft", "gut", "stabil", "erledigt", "kritisch"]
 
@@ -2476,6 +2578,8 @@ const BILAT_FIELD_KEYS = [
   "kat_b_self", "kat_b_fk", "kat_b_comment",
   "kat_c_self", "kat_c_fk", "kat_c_comment",
   "kat_d_self", "kat_d_fk", "kat_d_comment",
+  "kat_e_self", "kat_e_fk", "kat_e_comment",
+  "kat_f_self", "kat_f_fk", "kat_f_comment",
   "vereinbarungen", "vereinbarungen_items", "themen_ma", "gespraechseindruck", "naechstes_bilat",
 ]
 
@@ -2528,17 +2632,17 @@ function BilatDataPage() {
     : [emptyVereinbarung()]
 
   useEffect(() => {
-    api("/api/bilat-periods").then(p => { setPeriods(p); if (!p.includes(period)) setPeriod(p[0] || defaultPeriod) }).catch(console.error)
+    api("/api/bilat-periods").then(p => { setPeriods(p); if (!p.includes(period)) setPeriod(p[0] || defaultPeriod) }).catch(e => setMsg({ type: "err", text: e.message }))
   }, [])
 
   useEffect(() => {
-    if (period) api(`/api/bilat-overview/${year}/${encodeURIComponent(period)}`).then(setOverview).catch(console.error)
+    if (period) api(`/api/bilat-overview/${year}/${encodeURIComponent(period)}`).then(setOverview).catch(e => setMsg({ type: "err", text: e.message }))
   }, [year, period])
 
   const loadFaktenblatt = (maName) => {
     api(`/api/bilat/${maName}/${year}/${encodeURIComponent(period)}/faktenblatt`)
       .then(setFaktenblatt)
-      .catch(() => setFaktenblatt(null))
+      .catch(e => { setFaktenblatt(null); setMsg({ type: "err", text: e.message || "Gesprächsinfos nicht geladen" }) })
   }
 
   const loadQual = (maName) => {
@@ -2547,7 +2651,11 @@ function BilatDataPage() {
         setQualGoals(d.goals || [])
         setQualSigned(d.signature || null)
       })
-      .catch(() => { setQualGoals([]); setQualSigned(null) })
+      .catch(e => {
+        setQualGoals([])
+        setQualSigned(null)
+        setMsg({ type: "err", text: e.message || "Qualis nicht geladen" })
+      })
   }
 
   const openBilat = async (ma) => {
@@ -2794,20 +2902,36 @@ function BilatDataPage() {
                 </div>
               )}
               {faktenblatt.kpi_type === "mitglieder" ? (
-                <div style={{ background: "#F0F4F6", borderRadius: 8, padding: "12px 14px", marginBottom: 14, fontSize: 13, color: "#555" }}>
-                  Für diese Person gelten <strong>Mitgliederzahlen</strong>, kein Umsatz/ZEG.
-                  Mitglieder-Import in der App folgt — bis dahin Qualiziele & Gesprächspunkte nutzen.
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ background: "#F0F4F6", borderRadius: 8, padding: "12px 14px", marginBottom: 10, fontSize: 13, color: "#555" }}>
+                    Für diese Person gelten <strong>Mitgliederzahlen</strong>, kein Umsatz/ZEG.
+                  </div>
+                  {(faktenblatt.mitglieder_months || []).length === 0 ? (
+                    <div style={{ fontSize: 13, color: "#888" }}>Noch keine Mitgliederzahlen — unter Daten eingeben erfassen.</div>
+                  ) : (
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ background: "#004869", color: "white" }}>
+                          <th style={{ padding: "8px 10px", textAlign: "left" }}>Monat</th>
+                          <th style={{ padding: "8px 10px", textAlign: "right" }}>Mitglieder</th>
+                          <th style={{ padding: "8px 10px", textAlign: "left" }}>Notiz</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {faktenblatt.mitglieder_months.map((m, i) => (
+                          <tr key={i} style={{ borderBottom: "1px solid #EEE" }}>
+                            <td style={{ padding: "8px 10px" }}>{m.label}</td>
+                            <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700 }}>{m.count}</td>
+                            <td style={{ padding: "8px 10px", color: "#666" }}>{m.notes || "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               ) : (
                 <div style={{ fontSize: 13, fontWeight: 700, color: "#004869", marginBottom: 12 }}>
                   {faktenblatt.performance_comment}
-                </div>
-              )}
-
-              {(faktenblatt.extended_rating_keys || []).length > 0 && (
-                <div style={{ background: "#FFF8E1", border: "1px solid #FFE082", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 12, color: "#6D4C00" }}>
-                  Word-Vorlage hat zusätzliche Kategorien ({faktenblatt.extended_rating_keys.map(k => k.toUpperCase()).join(", ")}).
-                  Der digitale Flow erfasst aktuell nur A–D — bitte E/F bei Bedarf im Word ergänzen.
                 </div>
               )}
 
@@ -2882,21 +3006,40 @@ function BilatDataPage() {
 
       {/* Phase: FK Vorbereitung */}
       {phase === "fk_prep" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-          {["a", "b", "c", "d"].map(k => (
-            <div key={k} style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-              <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>
-                Kat. {k.toUpperCase()} — {KAT_LABELS[k]}
-              </h4>
-              <RatingButtons field={`kat_${k}_fk`} label="Einschätzung Führungskraft (1–5)" />
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Notiz FK (optional)</div>
-                <textarea value={bilatData[`kat_${k}_comment`] || ""}
-                  onChange={e => setBilatData({ ...bilatData, [`kat_${k}_comment`]: e.target.value })}
-                  style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 60, boxSizing: "border-box" }} />
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20 }}>
+            {KAT_KEYS_REQUIRED.map(k => (
+              <div key={k} style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>
+                  Kat. {k.toUpperCase()} — {KAT_LABELS[k]}
+                </h4>
+                <RatingButtons field={`kat_${k}_fk`} label="Einschätzung Führungskraft (1–5)" />
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Notiz FK (optional)</div>
+                  <textarea value={bilatData[`kat_${k}_comment`] || ""}
+                    onChange={e => setBilatData({ ...bilatData, [`kat_${k}_comment`]: e.target.value })}
+                    style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 60, boxSizing: "border-box" }} />
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+          <div style={{ marginTop: 20, fontSize: 13, fontWeight: 700, color: "#004869" }}>Optional — Kat. E/F</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20, marginTop: 10 }}>
+            {["e", "f"].map(k => (
+              <div key={k} style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", opacity: 0.95 }}>
+                <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>
+                  Kat. {k.toUpperCase()} — {KAT_LABELS[k]}
+                </h4>
+                <RatingButtons field={`kat_${k}_fk`} label="Einschätzung Führungskraft (1–5)" />
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Notiz FK (optional)</div>
+                  <textarea value={bilatData[`kat_${k}_comment`] || ""}
+                    onChange={e => setBilatData({ ...bilatData, [`kat_${k}_comment`]: e.target.value })}
+                    style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 60, boxSizing: "border-box" }} />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -2912,11 +3055,12 @@ function BilatDataPage() {
               Bitte Gerät an {selected.display_name} wenden. Die Einschätzung der Führungskraft ist ausgeblendet.
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-            {["a", "b", "c", "d"].map(k => (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 20 }}>
+            {KAT_KEYS_ALL.map(k => (
               <div key={k} style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                 <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>
                   Kat. {k.toUpperCase()} — {KAT_LABELS[k]}
+                  {!KAT_KEYS_REQUIRED.includes(k) && <span style={{ fontWeight: 500, color: "#888", fontSize: 12 }}> (optional)</span>}
                 </h4>
                 <RatingButtons field={`kat_${k}_self`} label="Wie schätzen Sie sich ein? (1–5)" large />
               </div>
@@ -3102,7 +3246,7 @@ function BilatDataPage() {
                 <div style={{ fontSize: 13, marginBottom: 8 }}>FK: <strong>{cat.fk_label}</strong></div>
                 {cat.comment && <div style={{ fontSize: 12, color: "#666" }}>{cat.comment}</div>}
               </div>
-            )) : ["a", "b", "c", "d"].map(k => (
+            )) : KAT_KEYS_ALL.map(k => (
               <div key={k} style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                 <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 12px", color: "#004869" }}>
                   Kat. {k.toUpperCase()} — {KAT_LABELS[k]}

@@ -3,12 +3,17 @@ from __future__ import annotations
 
 from database import BilatData
 
-KAT_KEYS = ("a", "b", "c", "d")
+# A–D sind Pflicht für Phasenwechsel; E/F optional (Vorlage)
+REQUIRED_KAT_KEYS = ("a", "b", "c", "d")
+OPTIONAL_KAT_KEYS = ("e", "f")
+KAT_KEYS = REQUIRED_KAT_KEYS + OPTIONAL_KAT_KEYS
 KAT_LABELS = {
     "a": "Profitabilität & Auslastung",
     "b": "Qualität & Operational Excellence",
     "c": "Satisfaction Intern – Team & Kultur",
     "d": "Satisfaction Extern – Patienten & Zuweiser",
+    "e": "Entwicklung & Potenzial",
+    "f": "Zusammenarbeit & Kommunikation",
 }
 RATING_LABELS = {
     1: "Entwicklungsbedarf",
@@ -36,6 +41,14 @@ TALK_PROMPTS = {
         "Wie erleben Patienten und Zuweiser die Person?",
         "Gibt es Feedback oder Situationen, die wir gemeinsam anschauen sollten?",
     ],
+    "e": [
+        "Welche Stärken wollen wir gezielt weiterentwickeln?",
+        "Was ist das nächste konkrete Entwicklungsschritt?",
+    ],
+    "f": [
+        "Wie funktioniert die Abstimmung im Alltag?",
+        "Wo braucht es klarere Erwartungen oder Feedback?",
+    ],
 }
 
 # Abweichung ≥ 2 Stufen = sensibel (kein harter Zahlenvergleich im Gespräch)
@@ -48,11 +61,11 @@ PHASE_DONE = "done"
 
 
 def _fk_complete(b: BilatData) -> bool:
-    return all(getattr(b, f"kat_{k}_fk") is not None for k in KAT_KEYS)
+    return all(getattr(b, f"kat_{k}_fk") is not None for k in REQUIRED_KAT_KEYS)
 
 
 def _self_complete(b: BilatData) -> bool:
-    return all(getattr(b, f"kat_{k}_self") is not None for k in KAT_KEYS)
+    return all(getattr(b, f"kat_{k}_self") is not None for k in REQUIRED_KAT_KEYS)
 
 
 def compute_deviations(b: BilatData | None) -> dict:
@@ -60,15 +73,15 @@ def compute_deviations(b: BilatData | None) -> dict:
         return {"categories": [], "has_grave": False, "all_mild": False, "ready": False}
     categories = []
     for k in KAT_KEYS:
-        self_v = getattr(b, f"kat_{k}_self")
-        fk_v = getattr(b, f"kat_{k}_fk")
+        self_v = getattr(b, f"kat_{k}_self", None)
+        fk_v = getattr(b, f"kat_{k}_fk", None)
         if self_v is None or fk_v is None:
             continue
         gap = abs(fk_v - self_v)
         fk_lower = fk_v < self_v
         categories.append({
             "cat": k,
-            "label": KAT_LABELS[k],
+            "label": KAT_LABELS.get(k, f"Kategorie {k.upper()}"),
             "self": self_v,
             "fk": fk_v,
             "gap": gap,
@@ -79,18 +92,22 @@ def compute_deviations(b: BilatData | None) -> dict:
             "comment": getattr(b, f"kat_{k}_comment", None) or "",
             "talk_prompts": list(TALK_PROMPTS.get(k, [])),
             "hint": fk_hint({
-                "label": KAT_LABELS[k],
+                "label": KAT_LABELS.get(k, f"Kategorie {k.upper()}"),
                 "grave": gap >= GRAVE_GAP,
                 "fk_lower": fk_lower,
                 "gap": gap,
             }),
         })
     has_grave = any(c["grave"] for c in categories)
+    required_ready = all(
+        getattr(b, f"kat_{k}_self") is not None and getattr(b, f"kat_{k}_fk") is not None
+        for k in REQUIRED_KAT_KEYS
+    )
     return {
         "categories": categories,
         "has_grave": has_grave,
         "all_mild": bool(categories) and not has_grave,
-        "ready": len(categories) == len(KAT_KEYS),
+        "ready": required_ready,
     }
 
 

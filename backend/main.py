@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -9,7 +9,7 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 import os, io, json
 
-from database import get_db, init_db, get_storage_info, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, MAScheduleSet, Feiertag, Notification, BilatData, QualGoal, MaDocument, QualSignature
+from database import get_db, init_db, get_storage_info, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, MAScheduleSet, Feiertag, Notification, BilatData, QualGoal, MaDocument, QualSignature, MitgliederData
 from calc import (
     compute_zeg, compute_soll_tage, parse_csv_umsatz, parse_csv_umsatz_result,
     parse_csv_pivot_all_months_result,
@@ -17,8 +17,9 @@ from calc import (
     is_employed_in_month,
 )
 from email_service import email_zeg_alarm, email_csv_reminder
-from auth import has_full_access
+from auth import has_full_access, needs_rehash, hash_password
 from ma_access import filter_mas_for_user, months_for_period, CC_KPI_TYPE, cc_kpi_label
+from rate_limit import client_ip, rate_limit
 
 def _require_full_access(user: User) -> None:
     if not has_full_access(user.role):
@@ -29,12 +30,21 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "kineo-secret-2026-change-in-prod")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 hours
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://kineo-leadership.onrender.com").rstrip("/")
+CRON_SECRET = os.environ.get("CRON_SECRET", "").strip()
+_cors_extra = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+CORS_ORIGINS = list(dict.fromkeys([
+    APP_BASE_URL,
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    *_cors_extra,
+]))
 
 app = FastAPI(title="Kineo Umsatzanalyse", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -79,11 +89,16 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     return user
 
 @app.post("/api/login", response_model=Token)
-def login(req: LoginRequest, db: Session = Depends(get_db)):
+def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    rate_limit(f"login:{client_ip(request)}", limit=20, window_seconds=300)
+    rate_limit(f"login-user:{(req.username or '').lower()}", limit=10, window_seconds=300)
     user = db.query(User).filter(User.username == req.username).first()
     from auth import verify_password
     if not user or not verify_password(req.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Falscher Benutzername oder Passwort")
+    if needs_rehash(user.hashed_password):
+        user.hashed_password = hash_password(req.password)
+        db.commit()
     token = create_token({"sub": user.username})
     return {
         "access_token": token,
@@ -104,12 +119,14 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 @app.post("/api/auth/forgot-password")
-def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
+def forgot_password(req: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)):
     """Reset-Link per E-Mail — antwortet immer gleich (kein User-Enumeration)."""
     import secrets
     from email_service import email_password_reset
 
+    rate_limit(f"forgot:{client_ip(request)}", limit=8, window_seconds=600)
     ident = req.identifier.strip().lower()
+    rate_limit(f"forgot-id:{ident}", limit=5, window_seconds=600)
     user = db.query(User).filter(
         (User.username == ident) | (User.email == ident)
     ).first()
@@ -311,6 +328,94 @@ async def upload_csv(
         "total_umsatz": round(sum(resolved.values()), 2),
     }
 
+
+# ── Mitgliederzahlen (CC / Ilaria) ─────────────────────────────────────────
+class MitgliederItem(BaseModel):
+    ma_name: str
+    year: int
+    month: int
+    count: float
+    notes: Optional[str] = None
+
+
+@app.get("/api/mitglieder/{year}")
+def get_mitglieder_year(
+    year: int,
+    month: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from mitglieder import list_mitglieder, mitglieder_as_dict
+    rows = list_mitglieder(db, year, month)
+    allowed = {
+        m.name
+        for m in filter_mas_for_user(db.query(MAStammdaten).all(), current_user, db, year=year, months=[month] if month else None)
+    }
+    return {
+        "year": year,
+        "month": month,
+        "items": [mitglieder_as_dict(r) for r in rows if r.ma_name in allowed],
+    }
+
+
+@app.post("/api/mitglieder")
+def save_mitglieder(
+    items: List[MitgliederItem],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_full_access(current_user)
+    from mitglieder import upsert_mitglieder, mitglieder_as_dict
+    saved = []
+    for it in items:
+        if it.month < 1 or it.month > 12:
+            raise HTTPException(status_code=400, detail=f"Ungültiger Monat: {it.month}")
+        row = upsert_mitglieder(
+            db,
+            ma_name=it.ma_name,
+            year=it.year,
+            month=it.month,
+            count=it.count,
+            notes=it.notes,
+            updated_by=current_user.username,
+        )
+        saved.append(mitglieder_as_dict(row))
+    return {"message": f"{len(saved)} Mitgliederzahlen gespeichert", "items": saved}
+
+
+@app.post("/api/mitglieder/upload-csv")
+async def upload_mitglieder_csv(
+    file: UploadFile = File(...),
+    year: int = Form(...),
+    ma_name: str = Form("Ilaria.F"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_full_access(current_user)
+    from mitglieder import parse_mitglieder_csv, upsert_mitglieder, mitglieder_as_dict
+    content = await file.read()
+    try:
+        text = content.decode("utf-8-sig")
+    except Exception:
+        text = content.decode("latin-1")
+    parsed = parse_mitglieder_csv(text)
+    if not parsed:
+        raise HTTPException(status_code=400, detail="Keine gültigen Zeilen (ma_name,month,count)")
+    saved = []
+    for p in parsed:
+        name = p.get("ma_name") or ma_name
+        row = upsert_mitglieder(
+            db,
+            ma_name=name,
+            year=year,
+            month=p["month"],
+            count=p["count"],
+            notes=p.get("notes"),
+            updated_by=current_user.username,
+        )
+        saved.append(mitglieder_as_dict(row))
+    return {"message": f"{len(saved)} Monate importiert", "items": saved}
+
 # ── Abwesenheiten Excel Upload ────────────────────────────────────────────
 @app.post("/api/upload-abwesenheiten")
 async def upload_abwesenheiten(
@@ -437,11 +542,21 @@ def get_inputs(
         MonthlyInput.year == year,
         MonthlyInput.month == month
     ).all()
+    allowed = {
+        m.name
+        for m in filter_mas_for_user(
+            db.query(MAStammdaten).all(),
+            current_user,
+            db,
+            year=year,
+            months=[month],
+        )
+    }
     return {i.ma_name: {
         "ferien_t": i.ferien_t, "kurs_h": i.kurs_h, "workshop_h": i.workshop_h,
         "marketing_h": i.marketing_h, "laufanalyse_h": i.laufanalyse_h,
         "krank_t": i.krank_t, "notes": i.notes
-    } for i in inputs}
+    } for i in inputs if i.ma_name in allowed}
 
 @app.post("/api/inputs")
 def save_inputs(
@@ -959,14 +1074,10 @@ def check_zeg_trends(
     return {"alerts": alerts, "count": len(alerts), "year": year}
 
 # ── Monthly Reminder Check ────────────────────────────────────────────────
-@app.post("/api/admin/check-reminders")
-def check_reminders(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    _require_full_access(current_user)
-    from datetime import date
+def _run_csv_reminder_check(db: Session) -> dict:
     today = date.today()
     if today.day < 5:
         return {"message": "Zu früh im Monat"}
-    # Check if last month has data
     last_month = today.month - 1 if today.month > 1 else 12
     last_year = today.year if today.month > 1 else today.year - 1
     count = db.query(UmsatzData).filter_by(year=last_year, month=last_month).count()
@@ -984,6 +1095,23 @@ def check_reminders(db: Session = Depends(get_db), current_user: User = Depends(
         return {"reminder": msg}
     return {"message": "CSV vorhanden"}
 
+
+@app.post("/api/admin/check-reminders")
+def check_reminders(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_full_access(current_user)
+    return _run_csv_reminder_check(db)
+
+
+@app.post("/api/cron/check-reminders")
+def cron_check_reminders(request: Request, db: Session = Depends(get_db)):
+    """Render Cron Job — Header X-Cron-Secret muss zu CRON_SECRET passen."""
+    if not CRON_SECRET:
+        raise HTTPException(status_code=503, detail="CRON_SECRET nicht konfiguriert")
+    provided = (request.headers.get("x-cron-secret") or "").strip()
+    if not provided or provided != CRON_SECRET:
+        raise HTTPException(status_code=401, detail="Ungültiger Cron-Secret")
+    return _run_csv_reminder_check(db)
+
 # ── Bilat Data ────────────────────────────────────────────────────────────
 class BilatInput(BaseModel):
     kat_a_self: Optional[int] = None
@@ -998,6 +1126,12 @@ class BilatInput(BaseModel):
     kat_d_self: Optional[int] = None
     kat_d_fk: Optional[int] = None
     kat_d_comment: Optional[str] = None
+    kat_e_self: Optional[int] = None
+    kat_e_fk: Optional[int] = None
+    kat_e_comment: Optional[str] = None
+    kat_f_self: Optional[int] = None
+    kat_f_fk: Optional[int] = None
+    kat_f_comment: Optional[str] = None
     vereinbarungen: Optional[str] = None
     vereinbarungen_items: Optional[List[dict]] = None
     themen_ma: Optional[str] = None
@@ -1034,7 +1168,7 @@ def _bilat_response(b: BilatData | None) -> dict:
     payload["vereinbarungen_items"] = parse_vereinbarungen(b.vereinbarungen)
     # Während MA-Selbsteinschätzung keine FK-Werte an den Client leaken
     if phase == PHASE_MA_SELF:
-        for k in ("a", "b", "c", "d"):
+        for k in ("a", "b", "c", "d", "e", "f"):
             payload[f"kat_{k}_fk"] = None
             payload[f"kat_{k}_comment"] = None
         payload["deviations"] = {"categories": [], "has_grave": False, "all_mild": False, "ready": False}

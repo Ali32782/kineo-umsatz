@@ -12,7 +12,7 @@ CANONICAL_MA_TEAMS: dict[str, str] = {
     "Valerio.S": "Escher Wyss",
 }
 
-# CC-Team: welche Kennzahl gilt (Umsatz/ZEG vs. Mitglieder — Mitglieder-Import folgt separat)
+# CC-Team: welche Kennzahl gilt
 CC_KPI_TYPE: dict[str, str] = {
     "Nina.S": "umsatz",
     "Marc.W": "umsatz",
