@@ -33,7 +33,7 @@ MA_PATTERNS = {
     "Pablo.G":    {"mo":0.20,"di":0.20,"mi":0.20,"do":0.20,"fr":0.00,"mgmt":0,"leit":0},
     "Pablo.M":    {"mo":0.20,"di":0.20,"mi":0.20,"do":0.20,"fr":0.00,"mgmt":0,"leit":0},
     "Raphael.H":  {"mo":0.00,"di":0.20,"mi":0.20,"do":0.20,"fr":0.20,"mgmt":0,"leit":4},
-    "Sereina.U":  {"mo":0.20,"di":0.20,"mi":0.20,"do":0.10,"fr":0.20,"mgmt":40,"leit":6},
+    "Sereina.U":  {"mo":0.20,"di":0.20,"mi":0.20,"do":0.10,"fr":0.20,"mgmt":40,"leit":0},
     "Sonia.M":    {"mo":0.20,"di":0.20,"mi":0.20,"do":0.20,"fr":0.20,"mgmt":0,"leit":0},
     "Valerio.S":  {"mo":0.20,"di":0.00,"mi":0.20,"do":0.00,"fr":0.20,"mgmt":0,"leit":0},
 }
