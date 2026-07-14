@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, sta
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, date
 from typing import Optional, List
@@ -46,14 +47,53 @@ CORS_ORIGINS = list(dict.fromkeys([
 
 app = FastAPI(title="Kineo Umsatzanalyse", version="1.0.0")
 
+# Bearer-Token-Auth (kein Cookie) → allow_credentials=False.
+# Sonst: ACAO "*" + credentials=true → Browser blockiert ("Failed to fetch").
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["Content-Disposition", "Content-Length"],
 )
+
+
+class EnsureCorsMiddleware:
+    """Absicherung: nie credentials + Wildcard; Origin spiegeln wenn vorhanden."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        origin = None
+        for k, v in scope.get("headers") or []:
+            if k == b"origin":
+                origin = v.decode("latin-1")
+                break
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                # Credentials-Header entfernen (kollidiert mit *)
+                if "access-control-allow-credentials" in headers:
+                    del headers["access-control-allow-credentials"]
+                if origin:
+                    headers["access-control-allow-origin"] = origin
+                    headers.append("vary", "Origin")
+                elif "access-control-allow-origin" not in headers:
+                    headers["access-control-allow-origin"] = "*"
+                headers.setdefault("access-control-expose-headers", "Content-Disposition, Content-Length")
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+app.add_middleware(EnsureCorsMiddleware)
 
 
 def _download_response(path: str, *, media_type: str, filename: str) -> Response:
@@ -100,10 +140,11 @@ def create_token(data: dict):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-from fastapi.security import OAuth2PasswordBearer
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/login")
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+_http_bearer = HTTPBearer(auto_error=False)
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+
+def _user_from_jwt(token: str, db: Session) -> User:
     credentials_exception = HTTPException(status_code=401, detail="Ungültige Anmeldedaten")
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -116,6 +157,27 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     if not user:
         raise credentials_exception
     return user
+
+
+async def get_current_user(
+    db: Session = Depends(get_db),
+    bearer: HTTPAuthorizationCredentials | None = Depends(_http_bearer),
+):
+    if not bearer or not bearer.credentials:
+        raise HTTPException(status_code=401, detail="Ungültige Anmeldedaten")
+    return _user_from_jwt(bearer.credentials, db)
+
+
+async def get_current_user_download(
+    request: Request,
+    db: Session = Depends(get_db),
+    bearer: HTTPAuthorizationCredentials | None = Depends(_http_bearer),
+):
+    """Auth via Header oder ?token= — für Downloads per Browser-Navigation (kein CORS)."""
+    raw = bearer.credentials if bearer and bearer.credentials else request.query_params.get("token")
+    if not raw:
+        raise HTTPException(status_code=401, detail="Ungültige Anmeldedaten")
+    return _user_from_jwt(raw, db)
 
 @app.post("/api/login", response_model=Token)
 def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
@@ -869,7 +931,7 @@ def get_ytd(
 async def export_excel(
     year: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_download)
 ):
     _require_full_access(current_user)
     from excel_export import generate_excel
@@ -888,7 +950,7 @@ async def export_excel(
 async def export_bilats(
     year: int, period_label: str, month: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_download)
 ):
     _require_full_access(current_user)
     from bilat_export import generate_bilats_zip
@@ -908,7 +970,7 @@ async def export_bilat_single(
     year: int, month: int, ma_name: str,
     period_label: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_download)
 ):
     from bilat_hj1_export import canonical_period_label
     from ma_access import TEAM_SCOPE_ROLES, ma_visible_to_user
@@ -1672,10 +1734,9 @@ def list_documents(
 @app.get("/api/documents/{doc_id}/download")
 def download_document(
     doc_id: int,
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user_download),
 ):
     from documents_store import read_document_bytes
-    from fastapi.responses import Response
 
     doc = db.query(MaDocument).filter_by(id=doc_id).first()
     if not doc:
@@ -1688,11 +1749,14 @@ def download_document(
     payload = read_document_bytes(doc)
     if not payload:
         raise HTTPException(status_code=404, detail="Datei fehlt auf dem Server")
+    fname = doc.filename or "dokument.bin"
+    safe_ascii = fname.encode("ascii", "ignore").decode("ascii") or "dokument.bin"
     return Response(
         content=payload,
         media_type=doc.mime_type or "application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{doc.filename}"',
+            "Content-Disposition": f"attachment; filename=\"{safe_ascii}\"; filename*=UTF-8''{quote(fname)}",
+            "Cache-Control": "no-store",
         },
     )
 
