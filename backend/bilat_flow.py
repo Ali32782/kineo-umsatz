@@ -161,7 +161,7 @@ def parse_vereinbarungen(text: str | None) -> list[dict]:
             items.append({"what": line.lstrip("0123456789.").strip(), "who": "", "until": ""})
     while len(items) < 1:
         items.append({"what": "", "who": "", "until": ""})
-    return items[:5]
+    return items[:20]
 
 
 def infer_phase(b: BilatData | None) -> str:

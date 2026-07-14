@@ -2981,9 +2981,9 @@ function BilatDataPage() {
               <input type="date" value={bilatData.naechstes_bilat || ""} onChange={e => setBilatData({ ...bilatData, naechstes_bilat: e.target.value })}
                 style={{ padding: "8px 12px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
             </div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 8 }}>Vereinbarungen (max. 3 — Was / Wer / Bis wann)</div>
-            {vereinItems.slice(0, 3).map((it, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 8 }}>Vereinbarungen (Was / Wer / Bis wann)</div>
+            {vereinItems.map((it, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8, marginBottom: 8 }}>
                 <input value={it.what || ""} onChange={e => setVereinItem(i, "what", e.target.value)}
                   placeholder={`Vereinbarung ${i + 1}`}
                   style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
@@ -2992,15 +2992,23 @@ function BilatDataPage() {
                   style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
                 <input type="date" value={it.until || ""} onChange={e => setVereinItem(i, "until", e.target.value)}
                   style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
+                <button type="button"
+                  onClick={() => setBilatData({
+                    ...bilatData,
+                    vereinbarungen_items: vereinItems.length <= 1
+                      ? [emptyVereinbarung()]
+                      : vereinItems.filter((_, j) => j !== i),
+                  })}
+                  style={{ padding: "8px 10px", border: "1px solid #DDD", borderRadius: 8, background: "white", cursor: "pointer", color: "#c0392b", fontSize: 12 }}>
+                  ×
+                </button>
               </div>
             ))}
-            {vereinItems.length < 3 && (
-              <button type="button"
-                onClick={() => setBilatData({ ...bilatData, vereinbarungen_items: [...vereinItems, emptyVereinbarung()] })}
-                style={{ marginTop: 4, padding: "6px 12px", borderRadius: 6, border: "1px solid #DDD", background: "white", cursor: "pointer", fontSize: 12 }}>
-                + Punkt hinzufügen
-              </button>
-            )}
+            <button type="button"
+              onClick={() => setBilatData({ ...bilatData, vereinbarungen_items: [...vereinItems, emptyVereinbarung()] })}
+              style={{ marginTop: 4, padding: "6px 12px", borderRadius: 6, border: "1px solid #DDD", background: "white", cursor: "pointer", fontSize: 12 }}>
+              + Punkt hinzufügen
+            </button>
           </div>
         </div>
       )}
