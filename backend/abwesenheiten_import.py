@@ -29,6 +29,12 @@ EXCEL_NAME_ALIASES = {
     "pablo m a": "Pablo.M",
     "valerio.l.s": "Valerio.S",
     "valerio l s": "Valerio.S",
+    "nina schulte": "Nina.S",
+    "marc walser": "Marc.W",
+    "ilaria ferrante": "Ilaria.F",
+    "susanne k": "Susanne.K",
+    "larissa s": "Larissa.S",
+    "pamela possamai": "Pamela.P",
 }
 
 

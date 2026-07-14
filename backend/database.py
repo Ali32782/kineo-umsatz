@@ -275,6 +275,7 @@ def _backfill_user_linked_ma():
         "hanna": "Hanna.R",
         "raphael": "Raphael.H",
         "helen": "Helen.S",
+        "pamela": "Pamela.P",
     }
     db = SessionLocal()
     try:
@@ -322,6 +323,90 @@ def _backfill_ma_fk_usernames():
             if fk:
                 ma.fk_username = fk
                 changed = True
+        if changed:
+            db.commit()
+    finally:
+        db.close()
+
+
+def _seed_cc_team_pamela():
+    """Pamela Possamai (CC-Leitung) + Team Nina/Marc/Ilaria/Susanne/Larissa."""
+    from auth import hash_password
+
+    db = SessionLocal()
+    try:
+        changed = False
+        pamela = db.query(User).filter_by(username="pamela").first()
+        if not pamela:
+            db.add(User(
+                username="pamela",
+                full_name="Pamela Possamai",
+                role="teamlead",
+                team="CC",
+                email="pamela.possamai@kineo.swiss",
+                linked_ma_name="Pamela.P",
+                hashed_password=hash_password("kineo2026"),
+            ))
+            changed = True
+        else:
+            if pamela.role != "teamlead":
+                pamela.role = "teamlead"
+                changed = True
+            if pamela.team != "CC":
+                pamela.team = "CC"
+                changed = True
+            if not pamela.linked_ma_name:
+                pamela.linked_ma_name = "Pamela.P"
+                changed = True
+            if not pamela.email:
+                pamela.email = "pamela.possamai@kineo.swiss"
+                changed = True
+
+        cc_mas = [
+            # name, display, role, bg_pct, has_umsatz (documented via pattern elsewhere)
+            ("Pamela.P", "Pamela Possamai", "teamlead", 1.0, "pamela"),
+            ("Nina.S", "Nina Schulte", "therapeut", 1.0, "pamela"),
+            ("Marc.W", "Marc Walser", "therapeut", 1.0, "pamela"),
+            ("Ilaria.F", "Ilaria Ferrante", "therapeut", 1.0, "pamela"),
+            ("Susanne.K", "Susanne K.", "therapeut", 1.0, "pamela"),
+            ("Larissa.S", "Larissa S.", "therapeut", 1.0, "pamela"),
+        ]
+        # Pamela herself reports to COO
+        fk_for = {
+            "Pamela.P": "sereina",
+            "Nina.S": "pamela",
+            "Marc.W": "pamela",
+            "Ilaria.F": "pamela",
+            "Susanne.K": "pamela",
+            "Larissa.S": "pamela",
+        }
+        for name, display, role, bg, _ in cc_mas:
+            ma = db.query(MAStammdaten).filter_by(name=name).first()
+            if not ma:
+                db.add(MAStammdaten(
+                    name=name,
+                    display_name=display,
+                    team="CC",
+                    role=role,
+                    bg_pct=bg,
+                    eintritt="2026-01-01",
+                    is_active=True,
+                    fk_username=fk_for[name],
+                ))
+                changed = True
+            else:
+                if ma.team != "CC":
+                    ma.team = "CC"
+                    changed = True
+                if ma.display_name != display:
+                    ma.display_name = display
+                    changed = True
+                if ma.fk_username != fk_for[name]:
+                    ma.fk_username = fk_for[name]
+                    changed = True
+                if not ma.is_active:
+                    ma.is_active = True
+                    changed = True
         if changed:
             db.commit()
     finally:
@@ -561,6 +646,7 @@ def init_db():
     run_migration_once("user_linked_ma_v1", _backfill_user_linked_ma)
     run_migration_once("sl_user_roles_v1", _backfill_standortlead_user_roles)
     run_migration_once("ma_fk_usernames_v1", _backfill_ma_fk_usernames)
+    run_migration_once("cc_team_pamela_v1", _seed_cc_team_pamela)
     _backfill_sereina_coo()
 
 def seed_initial_data():
@@ -585,6 +671,9 @@ def seed_initial_data():
                  email="raphael.hahner@kineo.swiss", hashed_password=hash_password("kineo2026")),
             User(username="helen", full_name="Helen S.", role="sl", team="Zollikon",
                  email="helen.schwank@kineo.swiss", hashed_password=hash_password("kineo2026")),
+            User(username="pamela", full_name="Pamela Possamai", role="teamlead", team="CC",
+                 email="pamela.possamai@kineo.swiss", linked_ma_name="Pamela.P",
+                 hashed_password=hash_password("kineo2026")),
         ]
         db.add_all(users)
 

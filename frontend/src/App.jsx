@@ -1420,7 +1420,7 @@ function ExportsPage() {
 
 
 // ── Admin Page ─────────────────────────────────────────────────────────────
-const STANDORTE = ["Seefeld","Wipkingen","Thalwil","Escher Wyss","Stauffacher","Zollikon","Office"]
+const STANDORTE = ["Seefeld","Wipkingen","Thalwil","Escher Wyss","Stauffacher","Zollikon","CC","Office"]
 const ROLLEN = ["therapeut","teamlead","sl","bd","management"]
 const DAYS_DE = ["Mo","Di","Mi","Do","Fr"]
 
