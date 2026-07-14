@@ -47,8 +47,10 @@ def test_qual_goals_override_template_in_faktenblatt():
 def test_cc_mas_have_no_fake_template_notes():
     """CC ohne eigene Word-Vorlage: keine Barbara-Qualiziele / Fake-Notizen."""
     from bilat_template_map import has_own_bilat_template
+    from database import _seed_cc_team_pamela
 
     init_db()
+    _seed_cc_team_pamela()
     db = SessionLocal()
     try:
         for name in ("Nina.S", "Marc.W", "Ilaria.F", "Susanne.K", "Larissa.S", "Pamela.P"):
@@ -56,11 +58,10 @@ def test_cc_mas_have_no_fake_template_notes():
             resolved = resolve_qual_goals_for_bilat(db, name, 2026, "HJ1 2026")
             assert resolved == []
             ma = db.query(MAStammdaten).filter_by(name=name).first()
-            assert ma
+            assert ma, f"MA {name} fehlt nach CC-Seed"
             fb = build_faktenblatt(ma, 2026, 6, {}, {}, None, db, period_label="HJ1 2026")
             assert fb["qual_goals"] == []
             assert fb["qual_goals_source"] == "none"
-            # keine Barbara-Vorlagen-Ziele als Fake-Notizen
             joined = " ".join(fb["leitfaden_points"])
             for fake in ("Fachkontent: Schröpfen", "Dokumentationsqualität", "Provisionstermine", "Alterszentrum Letzipark"):
                 assert fake not in joined

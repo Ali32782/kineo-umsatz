@@ -168,5 +168,7 @@ def delete_document(db: Session, doc: MaDocument) -> None:
         pass
     for sig in db.query(QualSignature).filter_by(document_id=doc.id).all():
         sig.document_id = None
+        if sig.status == "signed":
+            sig.status = "document_deleted"
     db.delete(doc)
     db.commit()

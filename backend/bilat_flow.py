@@ -180,18 +180,25 @@ def infer_phase(b: BilatData | None) -> str:
 
 
 def advance_phase(b: BilatData, action: str) -> str:
-    """action: submit_fk | submit_self | complete_reveal"""
+    """action: submit_fk | submit_self | complete_reveal — nur vorwärts, kein Rewind."""
+    current = (getattr(b, "flow_phase", None) or PHASE_FK_PREP)
     if action == "submit_fk":
+        if current not in (PHASE_FK_PREP,):
+            raise ValueError("FK-Freigabe nur in der Vorbereitungsphase möglich.")
         if not _fk_complete(b):
             raise ValueError("Bitte alle vier FK-Bewertungen (A–D) erfassen.")
         b.flow_phase = PHASE_MA_SELF
         return b.flow_phase
     if action == "submit_self":
+        if current not in (PHASE_MA_SELF,):
+            raise ValueError("Selbsteinschätzung nur in Phase 2 möglich.")
         if not _self_complete(b):
             raise ValueError("Bitte alle vier Selbsteinschätzungen (A–D) erfassen.")
         b.flow_phase = PHASE_REVEAL
         return b.flow_phase
     if action == "complete_reveal":
+        if current not in (PHASE_REVEAL,):
+            raise ValueError("Abschluss nur in der Abgleich-Phase möglich.")
         b.flow_phase = PHASE_DONE
         return b.flow_phase
     raise ValueError(f"Unbekannte Aktion: {action}")

@@ -447,11 +447,7 @@ def _build_leitfaden_points(perf_range: str | None, qual_goal_names: list[str], 
         if "nicht" in name.lower() and "erfasst" in name.lower():
             continue
         points.append(f"{len(points) + 1}.  {name}")
-    if bilat:
-        for key, label in [("a", "Kat. A"), ("b", "Kat. B"), ("c", "Kat. C"), ("d", "Kat. D")]:
-            fk_v = getattr(bilat, f"kat_{key}_fk", None)
-            if fk_v is not None:
-                points.append(f"{len(points) + 1}.  {label}: FK-Bewertung {fk_v}/5")
+    # Keine Roh-Skalenwerte in Gesprächspunkten (Abweichungen laufen über Agenda-Hinweise)
     return points
 
 

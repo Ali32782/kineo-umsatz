@@ -1032,6 +1032,16 @@ def _bilat_response(b: BilatData | None) -> dict:
     }
     payload["flow_phase"] = phase
     payload["vereinbarungen_items"] = parse_vereinbarungen(b.vereinbarungen)
+    # Während MA-Selbsteinschätzung keine FK-Werte an den Client leaken
+    if phase == PHASE_MA_SELF:
+        for k in ("a", "b", "c", "d"):
+            payload[f"kat_{k}_fk"] = None
+            payload[f"kat_{k}_comment"] = None
+        payload["deviations"] = {"categories": [], "has_grave": False, "all_mild": False, "ready": False}
+        payload["agenda"] = []
+        payload["fk_hints"] = []
+        payload["mild_summaries"] = []
+        return payload
     if phase in (PHASE_REVEAL, PHASE_DONE):
         dev = compute_deviations(b)
         payload["deviations"] = dev
@@ -1046,13 +1056,25 @@ def _bilat_response(b: BilatData | None) -> dict:
     return payload
 
 
+def _clamp_rating(v):
+    if v is None:
+        return None
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return None
+    if n < 1 or n > 5:
+        return None
+    return n
+
+
 def _apply_bilat_fields(b: BilatData, data: BilatInput, phase: str) -> None:
     from bilat_flow import PHASE_FK_PREP, PHASE_MA_SELF, format_vereinbarungen
     dump = data.model_dump()
-    # Strukturierte Vereinbarungen → Textfeld
     items = dump.pop("vereinbarungen_items", None)
     if items is not None:
-        dump["vereinbarungen"] = format_vereinbarungen(items) or dump.get("vereinbarungen")
+        # Explizit leeren erlauben (kein Fallback auf alten Text)
+        dump["vereinbarungen"] = format_vereinbarungen(items)
     if phase == PHASE_FK_PREP:
         allowed = {k for k in dump if k.endswith("_fk") or k.endswith("_comment")}
     elif phase == PHASE_MA_SELF:
@@ -1060,8 +1082,11 @@ def _apply_bilat_fields(b: BilatData, data: BilatInput, phase: str) -> None:
     else:
         allowed = {k for k in dump if k != "vereinbarungen_items"}
     for k, v in dump.items():
-        if k in allowed:
-            setattr(b, k, v)
+        if k not in allowed:
+            continue
+        if k.endswith("_self") or k.endswith("_fk"):
+            v = _clamp_rating(v)
+        setattr(b, k, v)
 
 @app.get("/api/bilat-periods")
 def get_bilat_periods(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -1080,14 +1105,18 @@ def get_bilat_periods(db: Session = Depends(get_db), current_user: User = Depend
 
 @app.get("/api/bilat/{ma_name}/{year}/{period_label}")
 def get_bilat(ma_name: str, year: int, period_label: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from bilat_hj1_export import canonical_period_label
     from ma_access import TEAM_SCOPE_ROLES, ma_visible_to_user
     ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
     if not ma:
         raise HTTPException(status_code=404, detail="MA nicht gefunden")
+    period = canonical_period_label(period_label, year)
     if current_user.role in TEAM_SCOPE_ROLES:
-        if not ma_visible_to_user(ma, current_user, db, year=year, months=months_for_period(period_label)):
+        if not ma_visible_to_user(ma, current_user, db, year=year, months=months_for_period(period)):
             raise HTTPException(status_code=403, detail="Keine Berechtigung")
-    b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period_label).first()
+    elif not has_full_access(current_user.role):
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period).first()
     if not b:
         return _bilat_response(None)
     return _bilat_response(b)
@@ -1100,16 +1129,19 @@ def get_bilat_faktenblatt(
 ):
     """FK-internes Faktenblatt (Performance, Qualiziele, Leitfaden) — auch ohne Word."""
     from calc import reporting_through_month
-    from bilat_hj1_export import build_faktenblatt
+    from bilat_hj1_export import build_faktenblatt, canonical_period_label
     from ma_access import TEAM_SCOPE_ROLES, ma_visible_to_user
 
     ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
     if not ma:
         raise HTTPException(status_code=404, detail="MA nicht gefunden")
-    period_months = months_for_period(period_label)
+    period = canonical_period_label(period_label, year)
+    period_months = months_for_period(period)
     if current_user.role in TEAM_SCOPE_ROLES:
         if not ma_visible_to_user(ma, current_user, db, year=year, months=period_months):
             raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    elif not has_full_access(current_user.role):
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
 
     through_report = reporting_through_month(year)
     through_month = min(max(period_months), through_report) if through_report else max(period_months)
@@ -1124,25 +1156,41 @@ def get_bilat_faktenblatt(
         MonthlyInput.ma_name == ma_name, MonthlyInput.year == year,
     ).all()
     inputs_all = {(r.ma_name, r.month): r for r in input_rows}
-    bilat = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period_label).first()
+    bilat = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period).first()
     return build_faktenblatt(
         ma, year, through_month, umsatz_all, inputs_all, bilat, db,
-        period_label=period_label,
+        period_label=period,
     )
 
 @app.post("/api/bilat/{ma_name}/{year}/{period_label}")
 def save_bilat(ma_name: str, year: int, period_label: str, body: BilatSaveRequest,
                db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     from bilat_flow import PHASE_FK_PREP, advance_phase
-    b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period_label).first()
+    from bilat_hj1_export import canonical_period_label
+    from ma_access import TEAM_SCOPE_ROLES, ma_visible_to_user
+
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+    if not ma:
+        raise HTTPException(status_code=404, detail="MA nicht gefunden")
+    period = canonical_period_label(period_label, year)
+    if current_user.role in TEAM_SCOPE_ROLES:
+        if not ma_visible_to_user(ma, current_user, db, year=year, months=months_for_period(period)):
+            raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    elif not has_full_access(current_user.role):
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+
+    b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period).first()
     if not b:
-        half = 1 if period_label.upper().startswith("HJ1") else 2
-        b = BilatData(ma_name=ma_name, year=year, period_label=period_label, half=half, flow_phase=PHASE_FK_PREP)
+        half = 1 if period.upper().startswith("HJ1") else 2
+        b = BilatData(ma_name=ma_name, year=year, period_label=period, half=half, flow_phase=PHASE_FK_PREP)
         db.add(b)
     phase = b.flow_phase or PHASE_FK_PREP
     _apply_bilat_fields(b, body.data, phase)
     if body.flow_action:
-        advance_phase(b, body.flow_action)
+        try:
+            advance_phase(b, body.flow_action)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     b.updated_at = datetime.utcnow()
     b.updated_by = current_user.username
     db.commit()
@@ -1151,12 +1199,16 @@ def save_bilat(ma_name: str, year: int, period_label: str, body: BilatSaveReques
 
 @app.get("/api/bilat-overview/{year}/{period_label}")
 def get_bilat_overview(year: int, period_label: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from bilat_hj1_export import canonical_period_label
+    period = canonical_period_label(period_label, year)
     mas = db.query(MAStammdaten).filter_by(is_active=True).all()
-    mas = filter_mas_for_user(mas, current_user, db, year=year, months=months_for_period(period_label))
-    bilats = {b.ma_name: b for b in db.query(BilatData).filter_by(year=year, period_label=period_label).all()}
+    mas = filter_mas_for_user(mas, current_user, db, year=year, months=months_for_period(period))
+    bilats = {b.ma_name: b for b in db.query(BilatData).filter_by(year=year, period_label=period).all()}
     return [{
         "name": m.name, "display_name": m.display_name, "team": m.team,
-        "has_data": m.name in bilats,
+        "has_data": m.name in bilats and (bilats[m.name].flow_phase == "done" or any(
+            getattr(bilats[m.name], f"kat_{k}_fk", None) is not None for k in "abcd"
+        )),
         "flow_phase": bilats[m.name].flow_phase if m.name in bilats else "fk_prep",
         "kat_a_fk": bilats[m.name].kat_a_fk if m.name in bilats else None,
         "kat_b_fk": bilats[m.name].kat_b_fk if m.name in bilats else None,

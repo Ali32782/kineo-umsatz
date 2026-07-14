@@ -53,6 +53,17 @@ def test_fk_hint_no_raw_numbers():
     assert "behutsam" in hint
 
 
+def test_advance_rejects_rewind_from_done():
+    b = _Bilat()
+    b.flow_phase = "done"
+    b.kat_a_fk = b.kat_b_fk = b.kat_c_fk = b.kat_d_fk = 3
+    try:
+        advance_phase(b, "submit_fk")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "Vorbereitungsphase" in str(e)
+
+
 def test_vereinbarungen_roundtrip():
     text = format_vereinbarungen([
         {"what": "Doku verbessern", "who": "Noah", "until": "2026-09-01"},
@@ -64,3 +75,8 @@ def test_vereinbarungen_roundtrip():
     assert items[0]["what"] == "Doku verbessern"
     assert items[0]["who"] == "Noah"
     assert items[0]["until"] == "2026-09-01"
+
+
+def test_format_empty_vereinbarungen_clears():
+    assert format_vereinbarungen([]) == ""
+    assert format_vereinbarungen([{"what": "", "who": "a", "until": "b"}]) == ""
