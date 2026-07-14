@@ -45,6 +45,37 @@ def test_template_has_expected_sections():
     assert "leitfaden" in tables
 
 
+def test_sereina_header_not_confused_with_faktenblatt():
+    """Faktenblatt enthält „Nicht für Mitarbeiter/in … Standorte“ — darf Header nicht überschreiben."""
+    doc = Document(resolve_bilat_template("Sereina.U"))
+    tables = _find_tables(doc)
+    assert "header" in tables
+    assert "faktenblatt" in tables
+    assert len(tables["header"].rows) >= 4
+    assert tables["header"].rows[0].cells[0].text.strip().startswith("Mitarbeiter")
+    assert tables["faktenblatt"].rows[0].cells[0].text.strip().startswith("FAKTENBLATT")
+
+
+def test_generate_bilat_sereina(tmp_path):
+    import os
+    os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+    from database import init_db, SessionLocal, MAStammdaten
+
+    init_db()
+    db = SessionLocal()
+    try:
+        ma = db.query(MAStammdaten).filter_by(name="Sereina.U").first()
+        if not ma:
+            return
+        out = tmp_path / "sereina.docx"
+        fill_hj1_template(ma, 2026, 6, {}, {}, None, db, str(out))
+        assert out.is_file()
+        tables = _find_tables(Document(out))
+        assert tables["header"].rows[1].cells[0].text.strip()
+    finally:
+        db.close()
+
+
 def test_generate_bilat_barbara(tmp_path):
     import os
     os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")

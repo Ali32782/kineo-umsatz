@@ -254,7 +254,8 @@ def _find_tables(doc: Document) -> dict:
     for table in doc.tables:
         r0 = _row_text(table, 0)
         r1 = _row_text(table, 1) if len(table.rows) > 1 else ""
-        if "Mitarbeiter/in" in r0 and "Standort" in r0:
+        # startswith — sonst matcht „Nicht für Mitarbeiter/in … Standorte“ im Faktenblatt
+        if r0.startswith("Mitarbeiter/in") and "Standort" in r0:
             found["header"] = table
         elif r0.strip().startswith("PERFORMANCE") and "ZEG-B" in r0:
             found["perf_title"] = table
@@ -727,18 +728,20 @@ def _fill_calc_detail(table, perf_rows: list[dict], bg_pct: str) -> None:
         kurs_days = (pr["kurs_h"] or 0) / 8.4
         mkt_days = (pr["marketing"] or 0) / 8.4
         lauf_days = (pr["lauf"] or 0) / 8.4
-        row = table.add_row().cells
-        _set_cell_text(row[0], MONTH_SHORT[pr["month"]])
-        _set_cell_text(row[1], bg_pct)
-        _set_cell_text(row[2], f"{pr['soll']:.1f}")
-        _set_cell_text(row[3], _dash_val(pr["ferien"]))
-        _set_cell_text(row[4], _dash_val(round(kurs_days, 2)) if kurs_days else "—")
-        _set_cell_text(row[5], _dash_val(round(mkt_days, 2)) if mkt_days else "—")
-        _set_cell_text(row[6], _dash_val(round(lauf_days, 2)) if lauf_days else "—")
-        _set_cell_text(row[7], _dash_val(z.get("mgmt_t", 0)) if z.get("mgmt_t") else "—")
-        _set_cell_text(row[8], _dash_val(pr["krank"]))
-        _set_cell_text(row[9], f"= {z.get('prod_b', 0):g} T")
-        _set_cell_text(row[10], _fmt_chf(pr["umsatz"]))
+        row = table.add_row()
+        _ensure_row_width(row, 11)
+        cells = row.cells
+        _set_cell_text(cells[0], MONTH_SHORT[pr["month"]])
+        _set_cell_text(cells[1], bg_pct)
+        _set_cell_text(cells[2], f"{pr['soll']:.1f}")
+        _set_cell_text(cells[3], _dash_val(pr["ferien"]))
+        _set_cell_text(cells[4], _dash_val(round(kurs_days, 2)) if kurs_days else "—")
+        _set_cell_text(cells[5], _dash_val(round(mkt_days, 2)) if mkt_days else "—")
+        _set_cell_text(cells[6], _dash_val(round(lauf_days, 2)) if lauf_days else "—")
+        _set_cell_text(cells[7], _dash_val(z.get("mgmt_t", 0)) if z.get("mgmt_t") else "—")
+        _set_cell_text(cells[8], _dash_val(pr["krank"]))
+        _set_cell_text(cells[9], f"= {z.get('prod_b', 0):g} T")
+        _set_cell_text(cells[10], _fmt_chf(pr["umsatz"]))
     formula = (
         "Formel: Soll-Tage (BG% × Arbeitstage Monat) − Abzüge = produktive Tage (B). "
         f"ZEG-B = Umsatz ÷ (ProdTage(B) × CHF {int(ZIEL)}). "
@@ -785,14 +788,18 @@ def fill_hj1_template(
     standort_funktion = _standort_funktion(ma)
 
     # Kopfdaten aus App (Stammdaten + FK)
-    if "header" in tables:
+    if "header" in tables and len(tables["header"].rows) > 1:
         h = tables["header"]
-        _set_cell_text(h.rows[1].cells[0], ma_name)
-        _set_cell_text(h.rows[1].cells[1], standort_funktion)
-        _set_cell_text(h.rows[1].cells[2], bg_pct)
-        if len(h.rows[1].cells) > 4:
-            _set_cell_text(h.rows[1].cells[4], period)
-        if fk_name and len(h.rows) > 3:
+        cells = h.rows[1].cells
+        if len(cells) > 0:
+            _set_cell_text(cells[0], ma_name)
+        if len(cells) > 1:
+            _set_cell_text(cells[1], standort_funktion)
+        if len(cells) > 2:
+            _set_cell_text(cells[2], bg_pct)
+        if len(cells) > 4:
+            _set_cell_text(cells[4], period)
+        if fk_name and len(h.rows) > 3 and h.rows[3].cells:
             _set_cell_text(h.rows[3].cells[0], fk_name)
 
     if "perf_title" in tables:
