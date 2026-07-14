@@ -2574,6 +2574,30 @@ function DocumentsPage() {
 
 const RATING_WORDS = ["", "Entwicklungsbedarf", "Unter Erwartung", "Erwartung erfüllt", "Gut", "Ausgezeichnet"]
 
+/** Alle Kategorien A–F für Abgleich/Abschluss — auch wenn E/F noch leer. */
+function fullKatAgenda(bilatData, agenda) {
+  const byCat = Object.fromEntries((agenda || []).map(c => [c.cat, c]))
+  return KAT_KEYS_ALL.map(k => {
+    if (byCat[k]) return { ...byCat[k], optional: !KAT_KEYS_REQUIRED.includes(k) }
+    const selfV = bilatData[`kat_${k}_self`]
+    const fkV = bilatData[`kat_${k}_fk`]
+    return {
+      cat: k,
+      label: KAT_LABELS[k],
+      self: selfV,
+      fk: fkV,
+      self_label: selfV ? RATING_WORDS[selfV] : "—",
+      fk_label: fkV ? RATING_WORDS[fkV] : "—",
+      gap: selfV != null && fkV != null ? Math.abs(fkV - selfV) : null,
+      grave: false,
+      comment: bilatData[`kat_${k}_comment`] || "",
+      talk_prompts: [],
+      hint: selfV == null && fkV == null ? "Noch nicht bewertet" : "Nur teilweise bewertet",
+      optional: !KAT_KEYS_REQUIRED.includes(k),
+    }
+  })
+}
+
 const FLOW_STEPS = [
   { id: "fk_prep", label: "FK vorbereiten" },
   { id: "ma_self", label: "MA Selbsteinschätzung" },
@@ -2633,6 +2657,7 @@ function BilatDataPage() {
   const phase = bilatData.flow_phase || "fk_prep"
   const deviations = bilatData.deviations || {}
   const agenda = bilatData.agenda || deviations.categories || []
+  const katAgenda = fullKatAgenda(bilatData, agenda)
   const hasGrave = deviations.has_grave
   const showFaktenblatt = phase !== "ma_self"
   const vereinItems = bilatData.vereinbarungen_items?.length
@@ -3089,17 +3114,21 @@ function BilatDataPage() {
             </div>
           )}
           <div style={{ display: "grid", gap: 12, marginBottom: 24 }}>
-            {agenda.map(cat => (
+            {katAgenda.map(cat => (
               <div key={cat.cat} style={{
                 background: "white", borderRadius: 12, padding: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
                 borderLeft: `4px solid ${cat.grave ? "#F57F17" : cat.gap === 0 ? "#2E7D32" : "#004869"}`,
+                opacity: cat.self == null && cat.fk == null ? 0.85 : 1,
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
                   <div style={{ fontWeight: 800, color: "#004869", fontSize: 14 }}>
                     Kat. {cat.cat.toUpperCase()} — {cat.label}
+                    {cat.optional && <span style={{ fontWeight: 500, color: "#888", fontSize: 12 }}> (optional)</span>}
                   </div>
                   <div style={{ fontSize: 12, color: cat.grave ? "#F57F17" : "#666", fontWeight: 600 }}>
-                    {cat.gap === 0 ? "Übereinstimmung" : cat.grave ? "Deutliche Abweichung" : "Leichte Abweichung"}
+                    {cat.self == null && cat.fk == null
+                      ? "Offen"
+                      : cat.gap === 0 ? "Übereinstimmung" : cat.grave ? "Deutliche Abweichung" : cat.gap != null ? "Leichte Abweichung" : "Teilweise"}
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10, fontSize: 13 }}>
@@ -3115,10 +3144,12 @@ function BilatDataPage() {
                 {cat.comment && (
                   <div style={{ fontSize: 12, color: "#555", marginBottom: 8, fontStyle: "italic" }}>FK-Notiz: {cat.comment}</div>
                 )}
-                <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>{cat.hint}</div>
-                <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 13, color: "#333", lineHeight: 1.5 }}>
-                  {(cat.talk_prompts || []).map((q, i) => <li key={i}>{q}</li>)}
-                </ul>
+                {cat.hint && <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>{cat.hint}</div>}
+                {(cat.talk_prompts || []).length > 0 && (
+                  <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 13, color: "#333", lineHeight: 1.5 }}>
+                    {cat.talk_prompts.map((q, i) => <li key={i}>{q}</li>)}
+                  </ul>
+                )}
               </div>
             ))}
           </div>
@@ -3240,27 +3271,25 @@ function BilatDataPage() {
       {/* Phase: Abgeschlossen — volle Ansicht für FK */}
       {phase === "done" && (
         <div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-            {agenda.length > 0 ? agenda.map(cat => (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginBottom: 20 }}>
+            {katAgenda.map(cat => (
               <div key={cat.cat} style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                 <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 12px", color: "#004869" }}>
                   Kat. {cat.cat.toUpperCase()} — {cat.label}
+                  {cat.optional && <span style={{ fontWeight: 500, color: "#888", fontSize: 12 }}> (optional)</span>}
                 </h4>
                 <div style={{ fontSize: 13, marginBottom: 6 }}>MA: <strong>{cat.self_label}</strong></div>
                 <div style={{ fontSize: 13, marginBottom: 8 }}>FK: <strong>{cat.fk_label}</strong></div>
                 {cat.comment && <div style={{ fontSize: 12, color: "#666" }}>{cat.comment}</div>}
-              </div>
-            )) : KAT_KEYS_ALL.map(k => (
-              <div key={k} style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 12px", color: "#004869" }}>
-                  Kat. {k.toUpperCase()} — {KAT_LABELS[k]}
-                </h4>
-                <div style={{ fontSize: 13, marginBottom: 6 }}>
-                  MA: <strong>{bilatData[`kat_${k}_self`] ? RATING_WORDS[bilatData[`kat_${k}_self`]] : "—"}</strong>
-                </div>
-                <div style={{ fontSize: 13 }}>
-                  FK: <strong>{bilatData[`kat_${k}_fk`] ? RATING_WORDS[bilatData[`kat_${k}_fk`]] : "—"}</strong>
-                </div>
+                {cat.optional && (cat.self == null || cat.fk == null) && (
+                  <div style={{ marginTop: 10, fontSize: 12, color: "#888" }}>Kann noch nachgetragen werden — Speichern unten.</div>
+                )}
+                {cat.optional && (
+                  <div style={{ marginTop: 10 }}>
+                    <RatingButtons field={`kat_${cat.cat}_fk`} label="FK nachtragen (1–5)" />
+                    <RatingButtons field={`kat_${cat.cat}_self`} label="MA nachtragen (1–5)" />
+                  </div>
+                )}
               </div>
             ))}
           </div>
