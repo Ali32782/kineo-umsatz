@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Upload, TrendingUp, Download, ClipboardList,
-  Calculator, User, Settings, Bell, LogOut, Calendar, Users, Info, ListChecks,
+  Calculator, User, Settings, Bell, LogOut, Calendar, Users, Info, ListChecks, FolderOpen,
 } from "lucide-react"
 
 /** Kineo CD — übernommen von kineo-physiotherapie.ch */
@@ -23,6 +23,7 @@ export const NAV_ICONS = {
   exports: Download,
   bilats: ClipboardList,
   qualziele: ListChecks,
+  ablage: FolderOpen,
   lohnrechner: Calculator,
   profil: User,
   admin: Settings,

@@ -190,6 +190,44 @@ class QualGoal(Base):
     updated_by = Column(String, nullable=True)
 
 
+class MaDocument(Base):
+    """Datei-Ablage pro MA (unterzeichnete Quali-PDFs, Uploads)."""
+    __tablename__ = "ma_documents"
+    id = Column(Integer, primary_key=True)
+    ma_name = Column(String, nullable=False, index=True)
+    title = Column(String, nullable=False)
+    doc_type = Column(String, nullable=False, default="upload")  # qual_signed | upload
+    year = Column(Integer, nullable=True, index=True)
+    period_label = Column(String, nullable=True, index=True)
+    filename = Column(String, nullable=False)
+    relative_path = Column(String, nullable=False)  # relativ zu DATA_DIR/documents
+    mime_type = Column(String, nullable=True)
+    size_bytes = Column(Integer, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)
+
+
+class QualSignature(Base):
+    """Digitale Bestätigung der Quali-Ziele (FK + MA) mit Zeitstempel."""
+    __tablename__ = "qual_signatures"
+    id = Column(Integer, primary_key=True)
+    ma_name = Column(String, nullable=False, index=True)
+    year = Column(Integer, nullable=False, index=True)
+    period_label = Column(String, nullable=False, index=True)
+    status = Column(String, default="signed")  # signed
+    goals_snapshot = Column(Text, nullable=True)  # JSON
+    vereinbarungen = Column(Text, nullable=True)
+    fk_display_name = Column(String, nullable=True)
+    fk_username = Column(String, nullable=True)
+    fk_confirmed_at = Column(DateTime, nullable=True)
+    ma_display_name = Column(String, nullable=True)
+    ma_confirmed_at = Column(DateTime, nullable=True)
+    document_id = Column(Integer, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)
+
+
 def get_db():
     db = SessionLocal()
     try:

@@ -296,6 +296,7 @@ function Layout({ children, page, setPage }) {
     { id: "exports", label: "Exporte", roles: FULL_ACCESS_ROLES },
     { id: "bilats", label: "Bilaterals" },
     { id: "qualziele", label: "Quali-Themen" },
+    { id: "ablage", label: "Ablage" },
     { id: "lohnrechner", label: "Lohnrechner", roles: FULL_ACCESS_ROLES },
     { id: "profil", label: "Profil" },
     { id: "admin", label: "Admin", roles: FULL_ACCESS_ROLES },
@@ -1957,6 +1958,7 @@ const KAT_LABELS = {
 const QUAL_STATUSES = ["offen", "läuft", "gut", "stabil", "erledigt", "kritisch"]
 
 function QualGoalsPage() {
+  const auth = useAuth()
   const years = useAvailableYears()
   const now = new Date()
   const defaultPeriod = `${now.getMonth() < 6 ? "HJ1" : "HJ2"} ${now.getFullYear()}`
@@ -1966,6 +1968,10 @@ function QualGoalsPage() {
   const [selected, setSelected] = useState(null)
   const [goals, setGoals] = useState([])
   const [templateGoals, setTemplateGoals] = useState([])
+  const [signature, setSignature] = useState(null)
+  const [signForm, setSignForm] = useState({ fk_display_name: "", ma_confirm_name: "", notes: "" })
+  const [fkOk, setFkOk] = useState(false)
+  const [maOk, setMaOk] = useState(false)
   const [msg, setMsg] = useState(null)
   const [saving, setSaving] = useState(false)
 
@@ -1986,6 +1992,14 @@ function QualGoalsPage() {
     setSelected(ma)
     setGoals(data.goals?.length ? data.goals : [{ name: "", result: "", status: "offen", detail: "" }])
     setTemplateGoals(data.template_goals || [])
+    setSignature(data.signature || null)
+    setSignForm({
+      fk_display_name: auth.user?.full_name || "",
+      ma_confirm_name: ma.display_name || "",
+      notes: "",
+    })
+    setFkOk(false)
+    setMaOk(false)
   }
 
   const save = async () => {
@@ -2021,6 +2035,44 @@ function QualGoalsPage() {
     }
   }
 
+  const sign = async () => {
+    if (!fkOk || !maOk) {
+      setMsg({ type: "err", text: "Bitte beide Bestätigungen (FK + MA) anhaken." })
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await api(`/api/qual-goals/${selected.name}/${year}/${encodeURIComponent(period)}/sign`, {
+        method: "POST",
+        body: JSON.stringify(signForm),
+      })
+      setSignature(res.signature || null)
+      setMsg({ type: "ok", text: res.message || "Unterzeichnet — PDF in der Ablage" })
+      loadOverview()
+    } catch (e) {
+      setMsg({ type: "err", text: e.message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const downloadSignedPdf = async (docId) => {
+    try {
+      const token = localStorage.getItem("token")
+      const res = await fetch(`${API}/api/documents/${docId}/download`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error("Download fehlgeschlagen")
+      const blob = await res.blob()
+      const a = document.createElement("a")
+      a.href = URL.createObjectURL(blob)
+      a.download = `Quali_${selected?.display_name || selected?.name}_${period}_signed.pdf`
+      a.click()
+    } catch (e) {
+      setMsg({ type: "err", text: e.message })
+    }
+  }
+
   const updateGoal = (idx, field, value) => {
     setGoals(gs => gs.map((g, i) => i === idx ? { ...g, [field]: value } : g))
   }
@@ -2039,10 +2091,15 @@ function QualGoalsPage() {
             Quali-Themen — {selected.display_name}
           </h1>
           <span style={{ color: "#888", fontSize: 13 }}>{period}</span>
+          {signature && (
+            <span style={{ background: "#E8F8E8", color: "#1a7a1a", padding: "4px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
+              ✓ Unterzeichnet
+            </span>
+          )}
         </div>
         <div style={{ background: "#F8FAFB", border: "1px solid #E4EEF3", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#555" }}>
           Hier pflegt das Management Qualitätsthemen (Ziel, Ergebnis %, Status, Detail).
-          Gespeicherte Werte erscheinen in den <strong>Bilat-Gesprächsinfos</strong> und im Word-Export.
+          Speichern → Bilat-Gesprächsinfos. Unterzeichnen → PDF in der <strong>Ablage</strong>.
         </div>
         {msg && (
           <div style={{
@@ -2094,6 +2151,58 @@ function QualGoalsPage() {
             {saving ? "…" : "Speichern"}
           </button>
         </div>
+
+        <div style={{ marginTop: 28, background: "white", borderRadius: 12, padding: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+          <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", color: "#004869", fontSize: 16 }}>Unterzeichnen</h3>
+          <div style={{ fontSize: 12, color: "#888", marginBottom: 14 }}>
+            Digitale Bestätigung mit Zeitstempel — erzeugt ein PDF in der Ablage (pro MA).
+          </div>
+          {signature ? (
+            <div style={{ background: "#E8F8E8", borderRadius: 8, padding: 14, fontSize: 13 }}>
+              <div style={{ fontWeight: 700, color: "#1a7a1a", marginBottom: 6 }}>Bereits unterzeichnet</div>
+              <div>FK: {signature.fk_display_name} · {signature.fk_confirmed_at && new Date(signature.fk_confirmed_at).toLocaleString("de-CH")}</div>
+              <div>MA: {signature.ma_display_name} · {signature.ma_confirmed_at && new Date(signature.ma_confirmed_at).toLocaleString("de-CH")}</div>
+              {signature.document_id && (
+                <button type="button" onClick={() => downloadSignedPdf(signature.document_id)}
+                  style={{ marginTop: 10, padding: "8px 14px", borderRadius: 8, border: "1px solid #004869", background: "white", color: "#004869", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>
+                  PDF herunterladen
+                </button>
+              )}
+              <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
+                Erneutes Unterzeichnen erstellt eine neue Version in der Ablage.
+              </div>
+            </div>
+          ) : null}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: signature ? 14 : 0 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Name Führungskraft</div>
+              <input value={signForm.fk_display_name} onChange={e => setSignForm({ ...signForm, fk_display_name: e.target.value })}
+                style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 12, cursor: "pointer" }}>
+                <input type="checkbox" checked={fkOk} onChange={e => setFkOk(e.target.checked)} />
+                FK bestätigt die Quali-Ziele
+              </label>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Name Mitarbeiter/in</div>
+              <input value={signForm.ma_confirm_name} onChange={e => setSignForm({ ...signForm, ma_confirm_name: e.target.value })}
+                style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 12, cursor: "pointer" }}>
+                <input type="checkbox" checked={maOk} onChange={e => setMaOk(e.target.checked)} />
+                MA bestätigt die Quali-Ziele
+              </label>
+            </div>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Bemerkung (optional)</div>
+            <input value={signForm.notes} onChange={e => setSignForm({ ...signForm, notes: e.target.value })}
+              style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} />
+          </div>
+          <button type="button" onClick={sign} disabled={saving || !(goals.some(g => (g.name || "").trim()))}
+            style={{ marginTop: 14, padding: "11px 22px", borderRadius: 8, border: "none", background: "#004869", color: "white", cursor: "pointer", fontWeight: 700, fontSize: 14 }}>
+            {saving ? "…" : "Unterzeichnen & PDF ablegen"}
+          </button>
+        </div>
       </div>
     )
   }
@@ -2103,7 +2212,7 @@ function QualGoalsPage() {
     <div>
       <h1 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", fontSize: 24, fontWeight: 800 }}>Quali-Themen</h1>
       <div style={{ color: "#888", marginBottom: 18, fontSize: 13 }}>
-        Qualitätsthemen für Bilaterals pflegen — Quelle für Gesprächsinfos & Word-Export
+        Qualitätsthemen für Bilaterals pflegen — Quelle für Gesprächsinfos, Unterzeichnung & Ablage
       </div>
       <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap", alignItems: "center" }}>
         <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
@@ -2133,7 +2242,10 @@ function QualGoalsPage() {
                   textAlign: "left", background: "white", border: "1px solid #EEE", borderRadius: 10,
                   padding: "14px 16px", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
                 }}>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{ma.display_name}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{ma.display_name}</div>
+                  {ma.signed && <span style={{ fontSize: 10, fontWeight: 700, color: "#1a7a1a" }}>✓ signiert</span>}
+                </div>
                 <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
                   {ma.goal_count ? `${ma.goal_count} Ziele gepflegt` : "Noch keine Ziele in der App"}
                   {ma.kpi_label ? ` · ${ma.kpi_label}` : ""}
@@ -2146,6 +2258,165 @@ function QualGoalsPage() {
       {overview.length === 0 && (
         <div style={{ color: "#888", fontSize: 13 }}>Keine Mitarbeiter sichtbar für diese Auswahl.</div>
       )}
+    </div>
+  )
+}
+
+function DocumentsPage() {
+  const [docs, setDocs] = useState([])
+  const [mas, setMas] = useState([])
+  const [filterMa, setFilterMa] = useState("")
+  const [uploadMa, setUploadMa] = useState("")
+  const [title, setTitle] = useState("")
+  const [msg, setMsg] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  const load = () => {
+    const q = filterMa ? `?ma_name=${encodeURIComponent(filterMa)}` : ""
+    api(`/api/documents${q}`)
+      .then(d => { setDocs(d.documents || []); setMas(d.mas || []) })
+      .catch(e => setMsg({ type: "err", text: e.message }))
+  }
+
+  useEffect(() => { load() }, [filterMa])
+
+  const download = async (doc) => {
+    try {
+      const token = localStorage.getItem("token")
+      const res = await fetch(`${API}/api/documents/${doc.id}/download`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error("Download fehlgeschlagen")
+      const blob = await res.blob()
+      const a = document.createElement("a")
+      a.href = URL.createObjectURL(blob)
+      a.download = doc.filename || "dokument"
+      a.click()
+    } catch (e) {
+      setMsg({ type: "err", text: e.message })
+    }
+  }
+
+  const remove = async (doc) => {
+    if (!confirm(`«${doc.title}» löschen?`)) return
+    try {
+      await api(`/api/documents/${doc.id}`, { method: "DELETE" })
+      setMsg({ type: "ok", text: "Gelöscht" })
+      load()
+    } catch (e) {
+      setMsg({ type: "err", text: e.message })
+    }
+  }
+
+  const upload = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file || !uploadMa) {
+      setMsg({ type: "err", text: "Bitte MA wählen und Datei auswählen" })
+      return
+    }
+    setLoading(true)
+    try {
+      const token = localStorage.getItem("token")
+      const fd = new FormData()
+      fd.append("file", file)
+      if (title.trim()) fd.append("title", title.trim())
+      const res = await fetch(`${API}/api/documents/${encodeURIComponent(uploadMa)}/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || "Upload fehlgeschlagen")
+      setMsg({ type: "ok", text: "Hochgeladen" })
+      setTitle("")
+      load()
+    } catch (err) {
+      setMsg({ type: "err", text: err.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const byMa = {}
+  for (const d of docs) {
+    if (!byMa[d.ma_name]) byMa[d.ma_name] = { display: d.display_name || d.ma_name, team: d.team, items: [] }
+    byMa[d.ma_name].items.push(d)
+  }
+
+  const selectStyle = { padding: "6px 10px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12, background: "white" }
+
+  return (
+    <div>
+      <h1 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", fontSize: 24, fontWeight: 800 }}>Ablage</h1>
+      <div style={{ color: "#888", marginBottom: 18, fontSize: 13 }}>
+        Unterzeichnete Quali-PDFs und Dateien pro Mitarbeiter/in
+      </div>
+      {msg && (
+        <div style={{
+          background: msg.type === "ok" ? "#E8F8E8" : "#FFE8E8",
+          color: msg.type === "ok" ? "#1a7a1a" : "#c0392b",
+          padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13,
+        }}>{msg.text}</div>
+      )}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20, alignItems: "center" }}>
+        <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
+          Filter MA:
+          <select value={filterMa} onChange={e => setFilterMa(e.target.value)} style={selectStyle}>
+            <option value="">Alle</option>
+            {mas.map(m => <option key={m.name} value={m.name}>{m.display_name} ({m.team})</option>)}
+          </select>
+        </label>
+      </div>
+      <div style={{ background: "white", borderRadius: 12, padding: 16, marginBottom: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+        <div style={{ fontWeight: 700, color: "#004869", marginBottom: 10, fontSize: 14 }}>Datei hochladen</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <select value={uploadMa} onChange={e => setUploadMa(e.target.value)} style={selectStyle}>
+            <option value="">MA wählen…</option>
+            {mas.map(m => <option key={m.name} value={m.name}>{m.display_name}</option>)}
+          </select>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Titel (optional)"
+            style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12, minWidth: 180 }} />
+          <label style={{ padding: "8px 14px", background: "#004869", color: "white", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+            {loading ? "…" : "Datei wählen"}
+            <input type="file" onChange={upload} style={{ display: "none" }} disabled={loading} />
+          </label>
+        </div>
+      </div>
+      {Object.keys(byMa).length === 0 && (
+        <div style={{ color: "#888", fontSize: 13 }}>Noch keine Dokumente — Qualis unterzeichnen oder Datei hochladen.</div>
+      )}
+      {Object.entries(byMa).map(([name, group]) => (
+        <div key={name} style={{ background: "white", borderRadius: 12, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+          <div style={{ background: "#004869", color: "white", padding: "12px 16px", display: "flex", justifyContent: "space-between" }}>
+            <span style={{ fontWeight: 800 }}>{group.display}</span>
+            <span style={{ fontSize: 12, opacity: 0.85 }}>{group.team || ""} · {group.items.length}</span>
+          </div>
+          {group.items.map(doc => (
+            <div key={doc.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "12px 16px", borderBottom: "1px solid #F5F5F5", flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{doc.title}</div>
+                <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>
+                  {doc.doc_type === "qual_signed" ? "Quali unterzeichnet" : "Upload"}
+                  {doc.period_label ? ` · ${doc.period_label}` : ""}
+                  {doc.created_at ? ` · ${new Date(doc.created_at).toLocaleString("de-CH")}` : ""}
+                  {doc.size_bytes != null ? ` · ${Math.max(1, Math.round(doc.size_bytes / 1024))} KB` : ""}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" onClick={() => download(doc)}
+                  style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #004869", background: "white", color: "#004869", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                  Download
+                </button>
+                <button type="button" onClick={() => remove(doc)}
+                  style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #DDD", background: "white", color: "#c0392b", cursor: "pointer", fontSize: 12 }}>
+                  Löschen
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   )
 }
@@ -2915,7 +3186,7 @@ export default function App() {
   }
   if (!user) return <LoginPage onLogin={handleLogin} />
 
-  const pages = { dashboard: DashboardPage, upload: UploadPage, overview: OverviewPage, exports: ExportsPage, admin: AdminPage, bilats: BilatDataPage, qualziele: QualGoalsPage, lohnrechner: LohnrechnerPage, profil: ProfilPage }
+  const pages = { dashboard: DashboardPage, upload: UploadPage, overview: OverviewPage, exports: ExportsPage, admin: AdminPage, bilats: BilatDataPage, qualziele: QualGoalsPage, ablage: DocumentsPage, lohnrechner: LohnrechnerPage, profil: ProfilPage }
   const PageComponent = pages[page] || DashboardPage
 
   return (

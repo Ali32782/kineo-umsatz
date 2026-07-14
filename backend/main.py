@@ -9,7 +9,7 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 import os, io, json
 
-from database import get_db, init_db, get_storage_info, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, MAScheduleSet, Feiertag, Notification, BilatData, QualGoal
+from database import get_db, init_db, get_storage_info, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, MAScheduleSet, Feiertag, Notification, BilatData, QualGoal, MaDocument, QualSignature
 from calc import (
     compute_zeg, compute_soll_tage, parse_csv_umsatz, parse_csv_umsatz_result,
     parse_csv_pivot_all_months_result,
@@ -1182,6 +1182,7 @@ def list_all_qual_goals_overview(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
     from bilat_hj1_export import canonical_period_label
+    from documents_store import get_signature, signature_as_dict
     from qual_goals import list_qual_goals, goals_as_dicts
 
     period = canonical_period_label(period_label, year)
@@ -1190,6 +1191,7 @@ def list_all_qual_goals_overview(
     out = []
     for m in mas:
         goals = goals_as_dicts(list_qual_goals(db, m.name, year, period))
+        sig = signature_as_dict(get_signature(db, m.name, year, period))
         out.append({
             "name": m.name,
             "display_name": m.display_name,
@@ -1197,6 +1199,8 @@ def list_all_qual_goals_overview(
             "goal_count": len(goals),
             "goals": goals,
             "kpi_label": cc_kpi_label(m.name),
+            "signed": bool(sig),
+            "signature": sig,
         })
     return {"period_label": period, "year": year, "ma_data": out}
 
@@ -1207,6 +1211,7 @@ def get_qual_goals(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
     from bilat_hj1_export import canonical_period_label, _read_qual_goals_from_template
+    from documents_store import get_signature, signature_as_dict
     from qual_goals import list_qual_goals, goals_as_dicts
 
     ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
@@ -1215,6 +1220,7 @@ def get_qual_goals(
     period = canonical_period_label(period_label, year)
     _require_qual_goal_access(ma, current_user, db, year, period)
     rows = list_qual_goals(db, ma_name, year, period)
+    sig = signature_as_dict(get_signature(db, ma_name, year, period))
     return {
         "ma_name": ma_name,
         "display_name": ma.display_name,
@@ -1223,6 +1229,8 @@ def get_qual_goals(
         "source": "db" if rows else "empty",
         "goals": goals_as_dicts(rows),
         "template_goals": _read_qual_goals_from_template(ma_name),
+        "signed": bool(sig),
+        "signature": sig,
     }
 
 
@@ -1286,6 +1294,160 @@ def import_qual_goals_from_template(
         "goals": goals_as_dicts(rows),
         "source": "db",
     }
+
+
+class QualSignRequest(BaseModel):
+    fk_display_name: str
+    ma_confirm_name: str
+    vereinbarungen: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@app.post("/api/qual-goals/{ma_name}/{year}/{period_label}/sign")
+def sign_qual_goals_endpoint(
+    ma_name: str, year: int, period_label: str, body: QualSignRequest,
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+):
+    from bilat_hj1_export import canonical_period_label
+    from qual_sign import sign_qual_goals
+
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+    if not ma:
+        raise HTTPException(status_code=404, detail="MA nicht gefunden")
+    period = canonical_period_label(period_label, year)
+    _require_qual_goal_access(ma, current_user, db, year, period)
+    try:
+        return sign_qual_goals(
+            db,
+            ma=ma,
+            year=year,
+            period_label=period,
+            current_user=current_user,
+            fk_display_name=body.fk_display_name,
+            ma_confirm_name=body.ma_confirm_name,
+            vereinbarungen=body.vereinbarungen,
+            notes=body.notes,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Dokumenten-Ablage ─────────────────────────────────────────────────────
+@app.get("/api/documents")
+def list_documents(
+    ma_name: Optional[str] = None,
+    year: Optional[int] = None,
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+):
+    from documents_store import document_as_dict, list_documents_for_mas
+
+    y = year or datetime.utcnow().year
+    mas = db.query(MAStammdaten).filter_by(is_active=True).all()
+    mas = filter_mas_for_user(mas, current_user, db, year=y, months=list(range(1, 13)))
+    if ma_name:
+        mas = [m for m in mas if m.name == ma_name]
+        if not mas:
+            raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    docs = list_documents_for_mas(db, [m.name for m in mas])
+    ma_index = {m.name: m for m in mas}
+    return {
+        "documents": [
+            {
+                **document_as_dict(d),
+                "display_name": (ma_index.get(d.ma_name).display_name if ma_index.get(d.ma_name) else d.ma_name),
+                "team": (ma_index.get(d.ma_name).team if ma_index.get(d.ma_name) else None),
+            }
+            for d in docs
+        ],
+        "mas": [
+            {"name": m.name, "display_name": m.display_name, "team": m.team}
+            for m in sorted(mas, key=lambda x: (x.team or "", x.display_name or x.name))
+        ],
+    }
+
+
+@app.get("/api/documents/{doc_id}/download")
+def download_document(
+    doc_id: int,
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+):
+    from documents_store import absolute_path
+
+    doc = db.query(MaDocument).filter_by(id=doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
+    ma = db.query(MAStammdaten).filter_by(name=doc.ma_name).first()
+    if not ma:
+        raise HTTPException(status_code=404, detail="MA nicht gefunden")
+    y = doc.year or datetime.utcnow().year
+    _require_qual_goal_access(ma, current_user, db, y, doc.period_label or f"HJ1 {y}")
+    path = absolute_path(doc)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Datei fehlt auf dem Server")
+    return FileResponse(
+        path,
+        media_type=doc.mime_type or "application/octet-stream",
+        filename=doc.filename,
+    )
+
+
+@app.delete("/api/documents/{doc_id}")
+def delete_document_endpoint(
+    doc_id: int,
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+):
+    from documents_store import delete_document
+
+    doc = db.query(MaDocument).filter_by(id=doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
+    ma = db.query(MAStammdaten).filter_by(name=doc.ma_name).first()
+    if not ma:
+        raise HTTPException(status_code=404, detail="MA nicht gefunden")
+    y = doc.year or datetime.utcnow().year
+    _require_qual_goal_access(ma, current_user, db, y, doc.period_label or f"HJ1 {y}")
+    delete_document(db, doc)
+    return {"message": "Dokument gelöscht"}
+
+
+@app.post("/api/documents/{ma_name}/upload")
+async def upload_document(
+    ma_name: str,
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    year: Optional[int] = Form(None),
+    period_label: Optional[str] = Form(None),
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+):
+    from documents_store import document_as_dict, save_bytes_document
+
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+    if not ma:
+        raise HTTPException(status_code=404, detail="MA nicht gefunden")
+    y = year or datetime.utcnow().year
+    period = period_label or f"HJ1 {y}"
+    _require_qual_goal_access(ma, current_user, db, y, period)
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Leere Datei")
+    if len(content) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Datei zu gross (max. 15 MB)")
+    fname = file.filename or "upload.bin"
+    doc = save_bytes_document(
+        db,
+        ma_name=ma_name,
+        title=title or fname,
+        doc_type="upload",
+        filename=fname,
+        content=content,
+        mime_type=file.content_type or "application/octet-stream",
+        created_by=current_user.username,
+        year=y,
+        period_label=period,
+        notes=notes,
+    )
+    return {"message": "Hochgeladen", "document": document_as_dict(doc)}
 
 
 # ── Notifications ─────────────────────────────────────────────────────────

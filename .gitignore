@@ -2,6 +2,7 @@
 !data/
 !data/kineo.db
 data/*.db-journal
+data/documents/
 exports/
 
 # Python
