@@ -999,6 +999,7 @@ class BilatInput(BaseModel):
     kat_d_fk: Optional[int] = None
     kat_d_comment: Optional[str] = None
     vereinbarungen: Optional[str] = None
+    vereinbarungen_items: Optional[List[dict]] = None
     themen_ma: Optional[str] = None
     gespraechseindruck: Optional[str] = None
     naechstes_bilat: Optional[str] = None
@@ -1012,7 +1013,7 @@ class BilatSaveRequest(BaseModel):
 def _bilat_response(b: BilatData | None) -> dict:
     from bilat_flow import (
         PHASE_DONE, PHASE_FK_PREP, PHASE_MA_SELF, PHASE_REVEAL,
-        compute_deviations, fk_hint, mild_summary,
+        compute_deviations, fk_hint, mild_summary, parse_vereinbarungen,
     )
     if not b:
         return {
@@ -1020,31 +1021,44 @@ def _bilat_response(b: BilatData | None) -> dict:
             "deviations": {"categories": [], "has_grave": False, "all_mild": False, "ready": False},
             "fk_hints": [],
             "mild_summaries": [],
+            "agenda": [],
+            "vereinbarungen_items": [{"what": "", "who": "", "until": ""}],
         }
     phase = b.flow_phase or PHASE_FK_PREP
-    payload = {k: getattr(b, k) for k in BilatInput.model_fields}
+    payload = {
+        k: getattr(b, k)
+        for k in BilatInput.model_fields
+        if k != "vereinbarungen_items" and hasattr(b, k)
+    }
     payload["flow_phase"] = phase
+    payload["vereinbarungen_items"] = parse_vereinbarungen(b.vereinbarungen)
     if phase in (PHASE_REVEAL, PHASE_DONE):
         dev = compute_deviations(b)
         payload["deviations"] = dev
+        payload["agenda"] = dev["categories"]
         payload["fk_hints"] = [fk_hint(c) for c in dev["categories"] if c["grave"]]
         payload["mild_summaries"] = [mild_summary(c) for c in dev["categories"]] if dev["all_mild"] else []
     else:
         payload["deviations"] = {"categories": [], "has_grave": False, "all_mild": False, "ready": False}
+        payload["agenda"] = []
         payload["fk_hints"] = []
         payload["mild_summaries"] = []
     return payload
 
 
 def _apply_bilat_fields(b: BilatData, data: BilatInput, phase: str) -> None:
-    from bilat_flow import PHASE_FK_PREP, PHASE_MA_SELF
+    from bilat_flow import PHASE_FK_PREP, PHASE_MA_SELF, format_vereinbarungen
     dump = data.model_dump()
+    # Strukturierte Vereinbarungen → Textfeld
+    items = dump.pop("vereinbarungen_items", None)
+    if items is not None:
+        dump["vereinbarungen"] = format_vereinbarungen(items) or dump.get("vereinbarungen")
     if phase == PHASE_FK_PREP:
         allowed = {k for k in dump if k.endswith("_fk") or k.endswith("_comment")}
     elif phase == PHASE_MA_SELF:
         allowed = {k for k in dump if k.endswith("_self") or k == "themen_ma"}
     else:
-        allowed = set(dump.keys())
+        allowed = {k for k in dump if k != "vereinbarungen_items"}
     for k, v in dump.items():
         if k in allowed:
             setattr(b, k, v)

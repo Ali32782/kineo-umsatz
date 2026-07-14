@@ -2435,27 +2435,32 @@ const BILAT_FIELD_KEYS = [
   "kat_b_self", "kat_b_fk", "kat_b_comment",
   "kat_c_self", "kat_c_fk", "kat_c_comment",
   "kat_d_self", "kat_d_fk", "kat_d_comment",
-  "vereinbarungen", "themen_ma", "gespraechseindruck", "naechstes_bilat",
+  "vereinbarungen", "vereinbarungen_items", "themen_ma", "gespraechseindruck", "naechstes_bilat",
 ]
 
 function bilatPayload(data) {
   return Object.fromEntries(BILAT_FIELD_KEYS.map(k => [k, data[k] ?? null]))
 }
 
+function emptyVereinbarung() {
+  return { what: "", who: "", until: "" }
+}
+
 const FLOW_PHASE_LABEL = {
   fk_prep: "Schritt 1 — Führungskraft bereitet Einschätzung vor",
   ma_self: "Schritt 2 — Selbsteinschätzung im Gespräch (FK-Sicht ausgeblendet)",
-  reveal: "Schritt 3 — Abgleich der Einschätzungen",
+  reveal: "Schritt 3 — Abgleich: Agenda, Qualis, Vereinbarungen",
   done: "Bilateral abgeschlossen",
 }
 
 function BilatDataPage() {
+  const auth = useAuth()
   const years = useAvailableYears()
   const now = new Date()
   const defaultPeriod = `${now.getMonth() < 6 ? "HJ1" : "HJ2"} ${now.getFullYear()}`
   const [overview, setOverview] = useState([])
   const [selected, setSelected] = useState(null)
-  const [bilatData, setBilatData] = useState({ flow_phase: "fk_prep" })
+  const [bilatData, setBilatData] = useState({ flow_phase: "fk_prep", vereinbarungen_items: [emptyVereinbarung()] })
   const [faktenblatt, setFaktenblatt] = useState(null)
   const [faktenOpen, setFaktenOpen] = useState(true)
   const [msg, setMsg] = useState(null)
@@ -2466,12 +2471,20 @@ function BilatDataPage() {
   const [showNewPeriod, setShowNewPeriod] = useState(false)
   const [saving, setSaving] = useState(false)
   const [wordLoading, setWordLoading] = useState(false)
+  const [signForm, setSignForm] = useState({ fk_display_name: "", ma_confirm_name: "", notes: "" })
+  const [fkOk, setFkOk] = useState(false)
+  const [maOk, setMaOk] = useState(false)
+  const [qualGoals, setQualGoals] = useState([])
+  const [qualSigned, setQualSigned] = useState(null)
 
   const phase = bilatData.flow_phase || "fk_prep"
   const deviations = bilatData.deviations || {}
+  const agenda = bilatData.agenda || deviations.categories || []
   const hasGrave = deviations.has_grave
-  const allMild = deviations.all_mild
   const showFaktenblatt = phase !== "ma_self"
+  const vereinItems = bilatData.vereinbarungen_items?.length
+    ? bilatData.vereinbarungen_items
+    : [emptyVereinbarung()]
 
   useEffect(() => {
     api("/api/bilat-periods").then(p => { setPeriods(p); if (!p.includes(period)) setPeriod(p[0] || defaultPeriod) }).catch(console.error)
@@ -2487,13 +2500,87 @@ function BilatDataPage() {
       .catch(() => setFaktenblatt(null))
   }
 
+  const loadQual = (maName) => {
+    api(`/api/qual-goals/${maName}/${year}/${encodeURIComponent(period)}`)
+      .then(d => {
+        setQualGoals(d.goals || [])
+        setQualSigned(d.signature || null)
+      })
+      .catch(() => { setQualGoals([]); setQualSigned(null) })
+  }
+
   const openBilat = async (ma) => {
     const data = await api(`/api/bilat/${ma.name}/${year}/${encodeURIComponent(period)}`).catch(() => ({ flow_phase: "fk_prep" }))
-    setBilatData(data || { flow_phase: "fk_prep" })
+    const merged = {
+      flow_phase: "fk_prep",
+      vereinbarungen_items: [emptyVereinbarung()],
+      ...(data || {}),
+    }
+    if (!merged.vereinbarungen_items?.length) merged.vereinbarungen_items = [emptyVereinbarung()]
+    setBilatData(merged)
     setSelected(ma)
     setMsg(null)
     setFaktenOpen(true)
+    setFkOk(false)
+    setMaOk(false)
+    setSignForm({
+      fk_display_name: auth.user?.full_name || "",
+      ma_confirm_name: ma.display_name || "",
+      notes: "",
+    })
     loadFaktenblatt(ma.name)
+    loadQual(ma.name)
+  }
+
+  const setVereinItem = (idx, field, value) => {
+    setBilatData(prev => {
+      const items = [...(prev.vereinbarungen_items?.length ? prev.vereinbarungen_items : [emptyVereinbarung()])]
+      items[idx] = { ...items[idx], [field]: value }
+      return { ...prev, vereinbarungen_items: items }
+    })
+  }
+
+  const updateQualStatus = async (idx, status) => {
+    const next = qualGoals.map((g, i) => i === idx ? { ...g, status } : g)
+    setQualGoals(next)
+    try {
+      await api(`/api/qual-goals/${selected.name}/${year}/${encodeURIComponent(period)}`, {
+        method: "PUT",
+        body: JSON.stringify({ goals: next.filter(g => (g.name || "").trim()) }),
+      })
+      loadFaktenblatt(selected.name)
+    } catch (e) {
+      setMsg({ type: "err", text: e.message })
+    }
+  }
+
+  const signQualis = async () => {
+    if (!fkOk || !maOk) {
+      setMsg({ type: "err", text: "Bitte beide Bestätigungen (FK + MA) anhaken." })
+      return
+    }
+    setSaving(true)
+    try {
+      const resBilat = await api(`/api/bilat/${selected.name}/${year}/${encodeURIComponent(period)}`, {
+        method: "POST",
+        body: JSON.stringify({ data: bilatPayload(bilatData) }),
+      })
+      setBilatData(resBilat)
+      const res = await api(`/api/qual-goals/${selected.name}/${year}/${encodeURIComponent(period)}/sign`, {
+        method: "POST",
+        body: JSON.stringify({
+          ...signForm,
+          vereinbarungen: resBilat.vereinbarungen || "",
+        }),
+      })
+      setQualSigned(res.signature || null)
+      setMsg({ type: "ok", text: res.message || "Qualis unterzeichnet" })
+      loadFaktenblatt(selected.name)
+    } catch (e) {
+      setMsg({ type: "err", text: e.message })
+    } finally {
+      setSaving(false)
+    }
   }
 
   const downloadWord = async () => {
@@ -2778,76 +2865,197 @@ function BilatDataPage() {
       {/* Phase: Abgleich */}
       {phase === "reveal" && (
         <div>
-          {allMild && (bilatData.mild_summaries || []).length > 0 && (
-            <div style={{ background: "#E8F5E9", border: "1px solid #A5D6A7", borderRadius: 12, padding: 20, marginBottom: 20 }}>
-              <div style={{ fontWeight: 800, color: "#2E7D32", marginBottom: 12 }}>Übereinstimmende / leichte Abweichungen</div>
-              {(bilatData.mild_summaries || []).map((t, i) => (
-                <div key={i} style={{ fontSize: 13, color: "#333", marginBottom: 6 }}>{t}</div>
-              ))}
-            </div>
-          )}
+          <div style={{ fontWeight: 800, fontSize: 15, color: "#004869", marginBottom: 12 }}>Gesprächsagenda</div>
           {hasGrave && (
-            <div style={{ background: "#FFF8E1", border: "1px solid #FFE082", borderRadius: 12, padding: 20, marginBottom: 20 }}>
-              <div style={{ fontWeight: 800, color: "#F57F17", marginBottom: 8 }}>Hinweise für die Führungskraft</div>
-              <div style={{ fontSize: 13, color: "#666", marginBottom: 12 }}>
-                Deutliche Abweichungen — bitte im Gespräch behutsam ansprechen, keine Skalen-Zahlen vorlesen.
-              </div>
-              {(bilatData.fk_hints || []).map((h, i) => (
-                <div key={i} style={{ fontSize: 13, color: "#333", marginBottom: 8, paddingLeft: 8, borderLeft: "3px solid #FFB300" }}>{h}</div>
-              ))}
+            <div style={{ background: "#FFF8E1", border: "1px solid #FFE082", borderRadius: 10, padding: 14, marginBottom: 14, fontSize: 13, color: "#6D4C00" }}>
+              Deutliche Abweichungen vorhanden — behutsam ansprechen, keine Skalen-Zahlen vorlesen.
             </div>
           )}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-            <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", gridColumn: "1 / -1" }}>
-              <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>Abschluss des Gesprächs</h4>
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 8 }}>Gesprächseindruck</div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {["Konstruktiv", "Offen", "Angespannt"].map(v => (
-                    <button key={v} onClick={() => setBilatData({ ...bilatData, gespraechseindruck: bilatData.gespraechseindruck === v ? null : v })}
-                      style={{
-                        padding: "7px 14px", border: `2px solid ${bilatData.gespraechseindruck === v ? "#004869" : "#DDD"}`,
-                        borderRadius: 8, cursor: "pointer", fontSize: 13,
-                        background: bilatData.gespraechseindruck === v ? "#E4EEF3" : "white",
-                        color: bilatData.gespraechseindruck === v ? "#004869" : "#555",
-                      }}>{v}</button>
-                  ))}
+          <div style={{ display: "grid", gap: 12, marginBottom: 24 }}>
+            {agenda.map(cat => (
+              <div key={cat.cat} style={{
+                background: "white", borderRadius: 12, padding: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                borderLeft: `4px solid ${cat.grave ? "#F57F17" : cat.gap === 0 ? "#2E7D32" : "#004869"}`,
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
+                  <div style={{ fontWeight: 800, color: "#004869", fontSize: 14 }}>
+                    Kat. {cat.cat.toUpperCase()} — {cat.label}
+                  </div>
+                  <div style={{ fontSize: 12, color: cat.grave ? "#F57F17" : "#666", fontWeight: 600 }}>
+                    {cat.gap === 0 ? "Übereinstimmung" : cat.grave ? "Deutliche Abweichung" : "Leichte Abweichung"}
+                  </div>
                 </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10, fontSize: 13 }}>
+                  <div style={{ background: "#F8FAFB", borderRadius: 8, padding: "10px 12px" }}>
+                    <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>Mitarbeiter/in</div>
+                    <strong>{cat.self_label}</strong>
+                  </div>
+                  <div style={{ background: "#F0F4F6", borderRadius: 8, padding: "10px 12px" }}>
+                    <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>Führungskraft</div>
+                    <strong>{cat.fk_label}</strong>
+                  </div>
+                </div>
+                {cat.comment && (
+                  <div style={{ fontSize: 12, color: "#555", marginBottom: 8, fontStyle: "italic" }}>FK-Notiz: {cat.comment}</div>
+                )}
+                <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>{cat.hint}</div>
+                <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 13, color: "#333", lineHeight: 1.5 }}>
+                  {(cat.talk_prompts || []).map((q, i) => <li key={i}>{q}</li>)}
+                </ul>
               </div>
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Nächstes Bilat-Datum</div>
-                <input type="date" value={bilatData.naechstes_bilat || ""} onChange={e => setBilatData({ ...bilatData, naechstes_bilat: e.target.value })}
-                  style={{ padding: "8px 12px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
+            ))}
+          </div>
+
+          {bilatData.themen_ma && (
+            <div style={{ background: "white", borderRadius: 12, padding: 16, marginBottom: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontWeight: 800, color: "#004869", marginBottom: 8, fontSize: 14 }}>Themen vom MA</div>
+              <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{bilatData.themen_ma}</div>
+            </div>
+          )}
+
+          <div style={{ background: "white", borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+            <div style={{ fontWeight: 800, color: "#004869", marginBottom: 8, fontSize: 14 }}>Qualitative Ziele</div>
+            {qualGoals.length === 0 ? (
+              <div style={{ fontSize: 13, color: "#888" }}>
+                Noch keine Qualis — unter Quali-Themen pflegen, dann hier Status setzen und unterzeichnen.
               </div>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Vereinbarungen & nächste Schritte</div>
-                <textarea value={bilatData.vereinbarungen || ""} onChange={e => setBilatData({ ...bilatData, vereinbarungen: e.target.value })}
-                  style={{ width: "100%", padding: 10, border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 80, boxSizing: "border-box" }} />
+            ) : (
+              <div style={{ display: "grid", gap: 8 }}>
+                {qualGoals.map((g, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", padding: "8px 10px", background: "#F8FAFB", borderRadius: 8, fontSize: 13 }}>
+                    <span style={{ fontWeight: 700, flex: "1 1 160px" }}>{g.name}</span>
+                    <span style={{ color: "#004869" }}>{g.result || "—"}</span>
+                    <select value={g.status || "offen"} onChange={e => updateQualStatus(i, e.target.value)}
+                      style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12 }}>
+                      {QUAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            )}
+            {qualSigned ? (
+              <div style={{ marginTop: 12, fontSize: 12, color: "#1a7a1a", fontWeight: 600 }}>
+                ✓ Qualis unterzeichnet ({qualSigned.fk_display_name} / {qualSigned.ma_display_name})
+              </div>
+            ) : qualGoals.length > 0 && (
+              <div style={{ marginTop: 14, borderTop: "1px solid #EEE", paddingTop: 14 }}>
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 10 }}>Am Ende unterzeichnen (PDF → Ablage)</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                  <input value={signForm.fk_display_name} onChange={e => setSignForm({ ...signForm, fk_display_name: e.target.value })}
+                    placeholder="Name FK" style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
+                  <input value={signForm.ma_confirm_name} onChange={e => setSignForm({ ...signForm, ma_confirm_name: e.target.value })}
+                    placeholder="Name MA" style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
+                </div>
+                <label style={{ display: "flex", gap: 8, fontSize: 12, marginBottom: 6, cursor: "pointer" }}>
+                  <input type="checkbox" checked={fkOk} onChange={e => setFkOk(e.target.checked)} /> FK bestätigt
+                </label>
+                <label style={{ display: "flex", gap: 8, fontSize: 12, marginBottom: 10, cursor: "pointer" }}>
+                  <input type="checkbox" checked={maOk} onChange={e => setMaOk(e.target.checked)} /> MA bestätigt
+                </label>
+                <button type="button" onClick={signQualis} disabled={saving}
+                  style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: "#004869", color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                  Qualis unterzeichnen & PDF ablegen
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+            <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>Abschluss des Gesprächs</h4>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 8 }}>Gesprächseindruck</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {["Konstruktiv", "Offen", "Angespannt"].map(v => (
+                  <button key={v} onClick={() => setBilatData({ ...bilatData, gespraechseindruck: bilatData.gespraechseindruck === v ? null : v })}
+                    style={{
+                      padding: "7px 14px", border: `2px solid ${bilatData.gespraechseindruck === v ? "#004869" : "#DDD"}`,
+                      borderRadius: 8, cursor: "pointer", fontSize: 13,
+                      background: bilatData.gespraechseindruck === v ? "#E4EEF3" : "white",
+                      color: bilatData.gespraechseindruck === v ? "#004869" : "#555",
+                    }}>{v}</button>
+                ))}
               </div>
             </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Nächstes Bilat-Datum</div>
+              <input type="date" value={bilatData.naechstes_bilat || ""} onChange={e => setBilatData({ ...bilatData, naechstes_bilat: e.target.value })}
+                style={{ padding: "8px 12px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
+            </div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 8 }}>Vereinbarungen (max. 3 — Was / Wer / Bis wann)</div>
+            {vereinItems.slice(0, 3).map((it, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                <input value={it.what || ""} onChange={e => setVereinItem(i, "what", e.target.value)}
+                  placeholder={`Vereinbarung ${i + 1}`}
+                  style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
+                <input value={it.who || ""} onChange={e => setVereinItem(i, "who", e.target.value)}
+                  placeholder="Wer"
+                  style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
+                <input type="date" value={it.until || ""} onChange={e => setVereinItem(i, "until", e.target.value)}
+                  style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
+              </div>
+            ))}
+            {vereinItems.length < 3 && (
+              <button type="button"
+                onClick={() => setBilatData({ ...bilatData, vereinbarungen_items: [...vereinItems, emptyVereinbarung()] })}
+                style={{ marginTop: 4, padding: "6px 12px", borderRadius: 6, border: "1px solid #DDD", background: "white", cursor: "pointer", fontSize: 12 }}>
+                + Punkt hinzufügen
+              </button>
+            )}
           </div>
         </div>
       )}
 
       {/* Phase: Abgeschlossen — volle Ansicht für FK */}
       {phase === "done" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-          {["a", "b", "c", "d"].map(k => (
-            <div key={k} style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-              <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>
-                Kat. {k.toUpperCase()} — {KAT_LABELS[k]}
-              </h4>
-              <div style={{ fontSize: 13, marginBottom: 8 }}>
-                MA: <strong>{bilatData[`kat_${k}_self`] ? RATING_WORDS[bilatData[`kat_${k}_self`]] : "—"}</strong>
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+            {agenda.length > 0 ? agenda.map(cat => (
+              <div key={cat.cat} style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 12px", color: "#004869" }}>
+                  Kat. {cat.cat.toUpperCase()} — {cat.label}
+                </h4>
+                <div style={{ fontSize: 13, marginBottom: 6 }}>MA: <strong>{cat.self_label}</strong></div>
+                <div style={{ fontSize: 13, marginBottom: 8 }}>FK: <strong>{cat.fk_label}</strong></div>
+                {cat.comment && <div style={{ fontSize: 12, color: "#666" }}>{cat.comment}</div>}
               </div>
-              <div style={{ fontSize: 13, marginBottom: 12 }}>
-                FK: <strong>{bilatData[`kat_${k}_fk`] ? RATING_WORDS[bilatData[`kat_${k}_fk`]] : "—"}</strong>
+            )) : ["a", "b", "c", "d"].map(k => (
+              <div key={k} style={{ background: "white", borderRadius: 12, padding: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 12px", color: "#004869" }}>
+                  Kat. {k.toUpperCase()} — {KAT_LABELS[k]}
+                </h4>
+                <div style={{ fontSize: 13, marginBottom: 6 }}>
+                  MA: <strong>{bilatData[`kat_${k}_self`] ? RATING_WORDS[bilatData[`kat_${k}_self`]] : "—"}</strong>
+                </div>
+                <div style={{ fontSize: 13 }}>
+                  FK: <strong>{bilatData[`kat_${k}_fk`] ? RATING_WORDS[bilatData[`kat_${k}_fk`]] : "—"}</strong>
+                </div>
               </div>
-              {bilatData[`kat_${k}_comment`] && (
-                <div style={{ fontSize: 12, color: "#666" }}>{bilatData[`kat_${k}_comment`]}</div>
-              )}
+            ))}
+          </div>
+          {bilatData.vereinbarungen && (
+            <div style={{ background: "white", borderRadius: 12, padding: 18, marginBottom: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontWeight: 800, color: "#004869", marginBottom: 8 }}>Vereinbarungen</div>
+              <pre style={{ margin: 0, fontFamily: "inherit", fontSize: 13, whiteSpace: "pre-wrap" }}>{bilatData.vereinbarungen}</pre>
             </div>
-          ))}
+          )}
+          {qualGoals.length > 0 && (
+            <div style={{ background: "white", borderRadius: 12, padding: 18, marginBottom: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontWeight: 800, color: "#004869", marginBottom: 8 }}>
+                Qualis {qualSigned ? "· unterzeichnet" : ""}
+              </div>
+              {qualGoals.map((g, i) => (
+                <div key={i} style={{ fontSize: 13, marginBottom: 4 }}>
+                  <strong>{g.name}</strong> — {g.status || "offen"} {g.result ? `(${g.result})` : ""}
+                </div>
+              ))}
+            </div>
+          )}
+          {(bilatData.gespraechseindruck || bilatData.naechstes_bilat) && (
+            <div style={{ fontSize: 13, color: "#555" }}>
+              {bilatData.gespraechseindruck && <span>Eindruck: <strong>{bilatData.gespraechseindruck}</strong></span>}
+              {bilatData.naechstes_bilat && <span style={{ marginLeft: 16 }}>Nächstes Bilat: <strong>{bilatData.naechstes_bilat}</strong></span>}
+            </div>
+          )}
         </div>
       )}
 
