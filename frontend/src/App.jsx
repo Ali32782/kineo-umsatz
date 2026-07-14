@@ -2818,29 +2818,32 @@ function BilatDataPage() {
 
   const save = async (flowAction = null, isRetry = false) => {
     setSaving(true)
+    setMsg(null)
     try {
       const res = await api(`/api/bilat/${selected.name}/${year}/${encodeURIComponent(period)}`, {
         method: "POST",
         body: JSON.stringify({ data: bilatPayload(bilatData), flow_action: flowAction }),
       })
       setBilatData(prev => ({ ...prev, ...res }))
-      setMsg({ type: "ok", text: flowAction ? "Phase gespeichert" : "Gespeichert" })
+      const okText = flowAction ? "Phase gespeichert" : "Gespeichert"
+      setMsg({ type: "ok", text: okText })
       api(`/api/bilat-overview/${year}/${encodeURIComponent(period)}`).then(setOverview)
       api("/api/bilat-periods").then(setPeriods)
       loadFaktenblatt(selected.name)
     } catch (e) {
       const text = e.message || "Speichern fehlgeschlagen"
-      if (!isRetry && (text.includes("aktualisiert") || text.includes("Schema") || text.includes("503"))) {
-        setMsg({ type: "err", text: "Schema-Update — speichere erneut…" })
+      if (!isRetry && (text.includes("aktualisiert") || text.includes("Schema") || String(text).includes("503"))) {
+        setMsg({ type: "err", text: "Schema-Update — speichere automatisch erneut…" })
         setSaving(false)
+        await new Promise(r => setTimeout(r, 400))
         return save(flowAction, true)
       }
-      setMsg({
-        type: "err",
-        text: text === "Failed to fetch"
-          ? "Verbindung fehlgeschlagen — Seite neu laden und erneut speichern."
-          : text,
-      })
+      const errText = text === "Failed to fetch"
+        ? "Verbindung fehlgeschlagen (Server/CORS). Seite hart neu laden (Cmd+Shift+R) und erneut speichern."
+        : text
+      setMsg({ type: "err", text: errText })
+      // Sofort sichtbar, auch wenn nach unten gescrollt
+      window.alert("Speichern fehlgeschlagen:\n" + errText)
     } finally {
       setSaving(false)
     }
@@ -2921,6 +2924,7 @@ function BilatDataPage() {
           background: msg.type === "ok" ? "#E8F8E8" : "#FFE8E8",
           color: msg.type === "ok" ? "#1a7a1a" : "#c0392b",
           padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13,
+          position: "sticky", top: 0, zIndex: 5, boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
         }}>{msg.text}</div>
       )}
 
@@ -3320,7 +3324,15 @@ function BilatDataPage() {
         </div>
       )}
 
-      <div style={{ marginTop: 20, display: "flex", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ marginTop: 20, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        {msg && (
+          <div style={{
+            flex: "1 1 100%",
+            background: msg.type === "ok" ? "#E8F8E8" : "#FFE8E8",
+            color: msg.type === "ok" ? "#1a7a1a" : "#c0392b",
+            padding: "10px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+          }}>{msg.text}</div>
+        )}
         {phase === "fk_prep" && (
           <>
             <button onClick={() => save()} disabled={saving}

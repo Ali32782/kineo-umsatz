@@ -2,7 +2,6 @@ from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, sta
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from starlette.datastructures import MutableHeaders
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, date
 from typing import Optional, List
@@ -45,10 +44,9 @@ CORS_ORIGINS = list(dict.fromkeys([
     *_cors_extra,
 ]))
 
-app = FastAPI(title="Kineo Umsatzanalyse", version="1.0.0")
+app = FastAPI(title="Kineo Umsatzanalyse", version="1.0.1")
 
-# Bearer-Token-Auth (kein Cookie) → allow_credentials=False.
-# Sonst: ACAO "*" + credentials=true → Browser blockiert ("Failed to fetch").
+# WICHTIG: allow_credentials=False — sonst blockiert der Browser bei ACAO "*".
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -59,41 +57,24 @@ app.add_middleware(
 )
 
 
-class EnsureCorsMiddleware:
-    """Absicherung: nie credentials + Wildcard; Origin spiegeln wenn vorhanden."""
-
-    def __init__(self, app):
-        self.app = app
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        origin = None
-        for k, v in scope.get("headers") or []:
-            if k == b"origin":
-                origin = v.decode("latin-1")
-                break
-
-        async def send_wrapper(message):
-            if message["type"] == "http.response.start":
-                headers = MutableHeaders(scope=message)
-                # Credentials-Header entfernen (kollidiert mit *)
-                if "access-control-allow-credentials" in headers:
-                    del headers["access-control-allow-credentials"]
-                if origin:
-                    headers["access-control-allow-origin"] = origin
-                    headers.append("vary", "Origin")
-                elif "access-control-allow-origin" not in headers:
-                    headers["access-control-allow-origin"] = "*"
-                headers.setdefault("access-control-expose-headers", "Content-Disposition, Content-Length")
-            await send(message)
-
-        await self.app(scope, receive, send_wrapper)
-
-
-app.add_middleware(EnsureCorsMiddleware)
+@app.middleware("http")
+async def cors_fix_headers(request: Request, call_next):
+    """Erzwingt CORS ohne credentials — unabhängig von Starlette/Cloudflare-Eigenheiten."""
+    response = await call_next(request)
+    origin = request.headers.get("origin")
+    # Credentials-Header darf nicht zusammen mit * stehen
+    if "access-control-allow-credentials" in response.headers:
+        del response.headers["access-control-allow-credentials"]
+    response.headers["access-control-allow-origin"] = origin or "*"
+    if origin:
+        vary = response.headers.get("vary", "")
+        if "Origin" not in vary:
+            response.headers["vary"] = f"{vary}, Origin".strip(", ")
+    response.headers.setdefault(
+        "access-control-expose-headers",
+        "Content-Disposition, Content-Length",
+    )
+    return response
 
 
 def _download_response(path: str, *, media_type: str, filename: str) -> Response:
@@ -1458,10 +1439,31 @@ def save_bilat(ma_name: str, year: int, period_label: str, body: BilatSaveReques
     except (ProgrammingError, OperationalError) as e:
         db.rollback()
         ensure_bilat_ef_columns()
-        raise HTTPException(
-            status_code=503,
-            detail="Datenbank wurde aktualisiert (Kat. E/F). Bitte Speichern erneut drücken.",
-        ) from e
+        # Nach Schema-Update: Felder erneut anwenden und committen
+        b2 = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period).first()
+        if not b2:
+            half = 1 if period.upper().startswith("HJ1") else 2
+            b2 = BilatData(ma_name=ma_name, year=year, period_label=period, half=half, flow_phase=PHASE_FK_PREP)
+            db.add(b2)
+            db.flush()
+        _apply_bilat_fields(b2, body.data, b2.flow_phase or PHASE_FK_PREP)
+        if body.flow_action:
+            try:
+                advance_phase(b2, body.flow_action)
+            except ValueError as ve:
+                raise HTTPException(status_code=400, detail=str(ve)) from ve
+        b2.updated_at = datetime.utcnow()
+        b2.updated_by = current_user.username
+        try:
+            db.commit()
+            db.refresh(b2)
+            return _bilat_response(b2)
+        except Exception as e2:
+            db.rollback()
+            raise HTTPException(
+                status_code=503,
+                detail=f"Speichern nach Schema-Update fehlgeschlagen: {e2}",
+            ) from e2
     db.refresh(b)
     return _bilat_response(b)
 
@@ -2066,6 +2068,7 @@ def health():
     return {
         "status": "ok",
         "app": "Kineo Umsatzanalyse",
-        "version": "1.0.0",
+        "version": "1.0.2",
+        "cors": "no-credentials",
         "storage": storage,
     }

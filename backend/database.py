@@ -520,10 +520,18 @@ def _migrate_bilat_kat_ef():
     with engine.begin() as conn:
         for col in missing:
             typ = "TEXT" if col.endswith("_comment") else "INTEGER"
-            conn.execute(text(f"ALTER TABLE bilat_data ADD COLUMN {col} {typ}"))
-    # Schema-Cache leeren, sonst kennt SQLAlchemy die Spalten noch nicht
+            # IF NOT EXISTS ist Postgres 9.1+ nicht überall — try/except
+            try:
+                conn.execute(text(f"ALTER TABLE bilat_data ADD COLUMN {col} {typ}"))
+            except Exception:
+                pass
     try:
         inspect(engine).clear_cache()
+    except Exception:
+        pass
+    # Connection-Pool neu, damit nächste Queries die Spalten sehen
+    try:
+        engine.dispose()
     except Exception:
         pass
 
