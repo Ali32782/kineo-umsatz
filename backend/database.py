@@ -173,6 +173,23 @@ class BilatData(Base):
     updated_at = Column(DateTime, default=datetime.utcnow)
     updated_by = Column(String, nullable=True)
 
+
+class QualGoal(Base):
+    """Qualitative Ziele / Qualitätsthemen für Bilaterals (Management-Input)."""
+    __tablename__ = "qual_goals"
+    id = Column(Integer, primary_key=True)
+    ma_name = Column(String, nullable=False, index=True)
+    year = Column(Integer, nullable=False, index=True)
+    period_label = Column(String, nullable=False, index=True)  # z.B. HJ1 2026
+    sort_order = Column(Integer, default=0)
+    name = Column(String, nullable=False)
+    result = Column(String, nullable=True)  # z.B. 91.7%
+    status = Column(String, nullable=True)  # offen / läuft / gut / …
+    detail = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    updated_by = Column(String, nullable=True)
+
+
 def get_db():
     db = SessionLocal()
     try:

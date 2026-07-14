@@ -9,7 +9,7 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 import os, io, json
 
-from database import get_db, init_db, get_storage_info, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, MAScheduleSet, Feiertag, Notification, BilatData
+from database import get_db, init_db, get_storage_info, User, UmsatzData, MonthlyInput, MAStammdaten, MAScheduleEntry, MAScheduleSet, Feiertag, Notification, BilatData, QualGoal
 from calc import (
     compute_zeg, compute_soll_tage, parse_csv_umsatz, parse_csv_umsatz_result,
     parse_csv_pivot_all_months_result,
@@ -1111,7 +1111,10 @@ def get_bilat_faktenblatt(
     ).all()
     inputs_all = {(r.ma_name, r.month): r for r in input_rows}
     bilat = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period_label).first()
-    return build_faktenblatt(ma, year, through_month, umsatz_all, inputs_all, bilat, db)
+    return build_faktenblatt(
+        ma, year, through_month, umsatz_all, inputs_all, bilat, db,
+        period_label=period_label,
+    )
 
 @app.post("/api/bilat/{ma_name}/{year}/{period_label}")
 def save_bilat(ma_name: str, year: int, period_label: str, body: BilatSaveRequest,
@@ -1148,6 +1151,142 @@ def get_bilat_overview(year: int, period_label: str, db: Session = Depends(get_d
         "kpi_type": CC_KPI_TYPE.get(m.name),
         "kpi_label": cc_kpi_label(m.name),
     } for m in mas]
+
+
+# ── Qualitative Ziele (Management) ────────────────────────────────────────
+class QualGoalItem(BaseModel):
+    name: str
+    result: Optional[str] = None
+    status: Optional[str] = None
+    detail: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class QualGoalsSaveRequest(BaseModel):
+    goals: List[QualGoalItem]
+
+
+def _require_qual_goal_access(ma: MAStammdaten, user: User, db: Session, year: int, period_label: str):
+    from ma_access import TEAM_SCOPE_ROLES, ma_visible_to_user
+    if has_full_access(user.role):
+        return
+    if user.role in TEAM_SCOPE_ROLES:
+        if ma_visible_to_user(ma, user, db, year=year, months=months_for_period(period_label)):
+            return
+    raise HTTPException(status_code=403, detail="Keine Berechtigung")
+
+
+@app.get("/api/qual-goals/{year}/{period_label}")
+def list_all_qual_goals_overview(
+    year: int, period_label: str,
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+):
+    from bilat_hj1_export import canonical_period_label
+    from qual_goals import list_qual_goals, goals_as_dicts
+
+    period = canonical_period_label(period_label, year)
+    mas = db.query(MAStammdaten).filter_by(is_active=True).all()
+    mas = filter_mas_for_user(mas, current_user, db, year=year, months=months_for_period(period))
+    out = []
+    for m in mas:
+        goals = goals_as_dicts(list_qual_goals(db, m.name, year, period))
+        out.append({
+            "name": m.name,
+            "display_name": m.display_name,
+            "team": m.team,
+            "goal_count": len(goals),
+            "goals": goals,
+            "kpi_label": cc_kpi_label(m.name),
+        })
+    return {"period_label": period, "year": year, "ma_data": out}
+
+
+@app.get("/api/qual-goals/{ma_name}/{year}/{period_label}")
+def get_qual_goals(
+    ma_name: str, year: int, period_label: str,
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+):
+    from bilat_hj1_export import canonical_period_label, _read_qual_goals_from_template
+    from qual_goals import list_qual_goals, goals_as_dicts
+
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+    if not ma:
+        raise HTTPException(status_code=404, detail="MA nicht gefunden")
+    period = canonical_period_label(period_label, year)
+    _require_qual_goal_access(ma, current_user, db, year, period)
+    rows = list_qual_goals(db, ma_name, year, period)
+    return {
+        "ma_name": ma_name,
+        "display_name": ma.display_name,
+        "period_label": period,
+        "year": year,
+        "source": "db" if rows else "empty",
+        "goals": goals_as_dicts(rows),
+        "template_goals": _read_qual_goals_from_template(ma_name),
+    }
+
+
+@app.put("/api/qual-goals/{ma_name}/{year}/{period_label}")
+def save_qual_goals(
+    ma_name: str, year: int, period_label: str, body: QualGoalsSaveRequest,
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+):
+    from bilat_hj1_export import canonical_period_label
+    from qual_goals import replace_qual_goals, goals_as_dicts
+
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+    if not ma:
+        raise HTTPException(status_code=404, detail="MA nicht gefunden")
+    period = canonical_period_label(period_label, year)
+    _require_qual_goal_access(ma, current_user, db, year, period)
+    rows = replace_qual_goals(
+        db,
+        ma_name=ma_name,
+        year=year,
+        period_label=period,
+        goals=[g.model_dump() for g in body.goals],
+        updated_by=current_user.username,
+    )
+    return {
+        "message": f"{len(rows)} Quali-Ziele gespeichert",
+        "ma_name": ma_name,
+        "period_label": period,
+        "goals": goals_as_dicts(rows),
+        "source": "db",
+    }
+
+
+@app.post("/api/qual-goals/{ma_name}/{year}/{period_label}/import-template")
+def import_qual_goals_from_template(
+    ma_name: str, year: int, period_label: str,
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+):
+    """Übernimmt Zielnamen/Status aus der Word-Vorlage in die DB (einmalig füttern)."""
+    from bilat_hj1_export import canonical_period_label, _read_qual_goals_from_template
+    from qual_goals import replace_qual_goals, goals_as_dicts
+
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+    if not ma:
+        raise HTTPException(status_code=404, detail="MA nicht gefunden")
+    period = canonical_period_label(period_label, year)
+    _require_qual_goal_access(ma, current_user, db, year, period)
+    tpl = _read_qual_goals_from_template(ma_name)
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Keine Quali-Ziele in der Word-Vorlage")
+    rows = replace_qual_goals(
+        db,
+        ma_name=ma_name,
+        year=year,
+        period_label=period,
+        goals=tpl,
+        updated_by=current_user.username,
+    )
+    return {
+        "message": f"{len(rows)} Ziele aus Vorlage importiert",
+        "goals": goals_as_dicts(rows),
+        "source": "db",
+    }
+
 
 # ── Notifications ─────────────────────────────────────────────────────────
 @app.get("/api/notifications")

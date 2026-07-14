@@ -295,6 +295,7 @@ function Layout({ children, page, setPage }) {
     { id: "overview", label: "Jahresübersicht" },
     { id: "exports", label: "Exporte", roles: FULL_ACCESS_ROLES },
     { id: "bilats", label: "Bilaterals" },
+    { id: "qualziele", label: "Quali-Themen" },
     { id: "lohnrechner", label: "Lohnrechner", roles: FULL_ACCESS_ROLES },
     { id: "profil", label: "Profil" },
     { id: "admin", label: "Admin", roles: FULL_ACCESS_ROLES },
@@ -1953,6 +1954,202 @@ const KAT_LABELS = {
   d: "Satisfaction Extern – Patienten & Zuweiser"
 }
 
+const QUAL_STATUSES = ["offen", "läuft", "gut", "stabil", "erledigt", "kritisch"]
+
+function QualGoalsPage() {
+  const years = useAvailableYears()
+  const now = new Date()
+  const defaultPeriod = `${now.getMonth() < 6 ? "HJ1" : "HJ2"} ${now.getFullYear()}`
+  const [year, setYear] = useState(now.getFullYear())
+  const [period, setPeriod] = useState(defaultPeriod)
+  const [overview, setOverview] = useState([])
+  const [selected, setSelected] = useState(null)
+  const [goals, setGoals] = useState([])
+  const [templateGoals, setTemplateGoals] = useState([])
+  const [msg, setMsg] = useState(null)
+  const [saving, setSaving] = useState(false)
+
+  const loadOverview = () => {
+    api(`/api/qual-goals/${year}/${encodeURIComponent(period)}`)
+      .then(d => setOverview(d.ma_data || []))
+      .catch(e => setMsg({ type: "err", text: e.message }))
+  }
+
+  useEffect(() => { loadOverview() }, [year, period])
+
+  const openMA = async (ma) => {
+    setMsg(null)
+    const data = await api(`/api/qual-goals/${ma.name}/${year}/${encodeURIComponent(period)}`).catch(e => {
+      setMsg({ type: "err", text: e.message }); return null
+    })
+    if (!data) return
+    setSelected(ma)
+    setGoals(data.goals?.length ? data.goals : [{ name: "", result: "", status: "offen", detail: "" }])
+    setTemplateGoals(data.template_goals || [])
+  }
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const res = await api(`/api/qual-goals/${selected.name}/${year}/${encodeURIComponent(period)}`, {
+        method: "PUT",
+        body: JSON.stringify({ goals: goals.filter(g => (g.name || "").trim()) }),
+      })
+      setGoals(res.goals?.length ? res.goals : [])
+      setMsg({ type: "ok", text: res.message || "Gespeichert — Bilats nutzen diese Werte" })
+      loadOverview()
+    } catch (e) {
+      setMsg({ type: "err", text: e.message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const importTemplate = async () => {
+    setSaving(true)
+    try {
+      const res = await api(`/api/qual-goals/${selected.name}/${year}/${encodeURIComponent(period)}/import-template`, {
+        method: "POST",
+      })
+      setGoals(res.goals || [])
+      setMsg({ type: "ok", text: res.message || "Aus Vorlage importiert" })
+      loadOverview()
+    } catch (e) {
+      setMsg({ type: "err", text: e.message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const updateGoal = (idx, field, value) => {
+    setGoals(gs => gs.map((g, i) => i === idx ? { ...g, [field]: value } : g))
+  }
+
+  const selectStyle = { padding: "6px 10px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12, background: "white", color: "#333" }
+
+  if (selected) {
+    return (
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+          <button onClick={() => { setSelected(null); setMsg(null); loadOverview() }}
+            style={{ background: "#EEE", border: "none", padding: "8px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>
+            ← Zurück
+          </button>
+          <h1 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: 0, fontSize: 22, fontWeight: 800 }}>
+            Quali-Themen — {selected.display_name}
+          </h1>
+          <span style={{ color: "#888", fontSize: 13 }}>{period}</span>
+        </div>
+        <div style={{ background: "#F8FAFB", border: "1px solid #E4EEF3", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#555" }}>
+          Hier pflegt das Management Qualitätsthemen (Ziel, Ergebnis %, Status, Detail).
+          Gespeicherte Werte erscheinen in den <strong>Bilat-Gesprächsinfos</strong> und im Word-Export.
+        </div>
+        {msg && (
+          <div style={{
+            background: msg.type === "ok" ? "#E8F8E8" : "#FFE8E8",
+            color: msg.type === "ok" ? "#1a7a1a" : "#c0392b",
+            padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13,
+          }}>{msg.text}</div>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {goals.map((g, i) => (
+            <div key={i} style={{ background: "white", borderRadius: 12, padding: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                <input value={g.name || ""} onChange={e => updateGoal(i, "name", e.target.value)}
+                  placeholder="Qualitätsthema / Ziel"
+                  style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
+                <input value={g.result || ""} onChange={e => updateGoal(i, "result", e.target.value)}
+                  placeholder="Ergebnis (z.B. 91.7%)"
+                  style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
+                <select value={g.status || "offen"} onChange={e => updateGoal(i, "status", e.target.value)}
+                  style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }}>
+                  {QUAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <input value={g.detail || ""} onChange={e => updateGoal(i, "detail", e.target.value)}
+                  placeholder="Detail / Bemerkung"
+                  style={{ flex: 1, padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
+                <button type="button" onClick={() => setGoals(gs => gs.filter((_, j) => j !== i))}
+                  style={{ padding: "8px 12px", border: "1px solid #DDD", borderRadius: 8, background: "white", cursor: "pointer", color: "#c0392b", fontSize: 12 }}>
+                  Entfernen
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button type="button" onClick={() => setGoals(gs => [...gs, { name: "", result: "", status: "offen", detail: "" }])}
+            style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #DDD", background: "white", cursor: "pointer", fontWeight: 600 }}>
+            + Ziel hinzufügen
+          </button>
+          {templateGoals.length > 0 && (
+            <button type="button" onClick={importTemplate} disabled={saving}
+              style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #004869", background: "white", color: "#004869", cursor: "pointer", fontWeight: 600 }}>
+              Aus Word-Vorlage übernehmen
+            </button>
+          )}
+          <button type="button" onClick={save} disabled={saving}
+            style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "#004869", color: "white", cursor: "pointer", fontWeight: 700, marginLeft: "auto" }}>
+            {saving ? "…" : "Speichern"}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const teams = [...new Set(overview.map(m => m.team).filter(Boolean))]
+  return (
+    <div>
+      <h1 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", fontSize: 24, fontWeight: 800 }}>Quali-Themen</h1>
+      <div style={{ color: "#888", marginBottom: 18, fontSize: 13 }}>
+        Qualitätsthemen für Bilaterals pflegen — Quelle für Gesprächsinfos & Word-Export
+      </div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap", alignItems: "center" }}>
+        <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
+          Jahr: <YearSelect value={year} onChange={setYear} years={years} style={selectStyle} />
+        </label>
+        <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
+          Periode:
+          <select value={period} onChange={e => setPeriod(e.target.value)} style={selectStyle}>
+            {[`HJ1 ${year}`, `HJ2 ${year}`].map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </label>
+      </div>
+      {msg && (
+        <div style={{
+          background: msg.type === "ok" ? "#E8F8E8" : "#FFE8E8",
+          color: msg.type === "ok" ? "#1a7a1a" : "#c0392b",
+          padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13,
+        }}>{msg.text}</div>
+      )}
+      {teams.map(team => (
+        <div key={team} style={{ marginBottom: 24 }}>
+          <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", fontSize: 16, color: "#004869", marginBottom: 10 }}>{team}</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: 12 }}>
+            {overview.filter(m => m.team === team).map(ma => (
+              <button key={ma.name} onClick={() => openMA(ma)}
+                style={{
+                  textAlign: "left", background: "white", border: "1px solid #EEE", borderRadius: 10,
+                  padding: "14px 16px", cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
+                }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{ma.display_name}</div>
+                <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
+                  {ma.goal_count ? `${ma.goal_count} Ziele gepflegt` : "Noch keine Ziele in der App"}
+                  {ma.kpi_label ? ` · ${ma.kpi_label}` : ""}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      {overview.length === 0 && (
+        <div style={{ color: "#888", fontSize: 13 }}>Keine Mitarbeiter sichtbar für diese Auswahl.</div>
+      )}
+    </div>
+  )
+}
+
 const RATING_WORDS = ["", "Entwicklungsbedarf", "Unter Erwartung", "Erwartung erfüllt", "Gut", "Ausgezeichnet"]
 
 const FLOW_STEPS = [
@@ -2718,7 +2915,7 @@ export default function App() {
   }
   if (!user) return <LoginPage onLogin={handleLogin} />
 
-  const pages = { dashboard: DashboardPage, upload: UploadPage, overview: OverviewPage, exports: ExportsPage, admin: AdminPage, bilats: BilatDataPage, lohnrechner: LohnrechnerPage, profil: ProfilPage }
+  const pages = { dashboard: DashboardPage, upload: UploadPage, overview: OverviewPage, exports: ExportsPage, admin: AdminPage, bilats: BilatDataPage, qualziele: QualGoalsPage, lohnrechner: LohnrechnerPage, profil: ProfilPage }
   const PageComponent = pages[page] || DashboardPage
 
   return (

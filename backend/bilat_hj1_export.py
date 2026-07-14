@@ -391,6 +391,48 @@ def _reset_qual_goal_values(table) -> list[str]:
     return names
 
 
+def _write_qual_goals_table(table, goals: list[dict]) -> list[str]:
+    """Schreibt Management-Qualiziele in die Word-Tabelle; gibt Namen zurück."""
+    names = [g["name"] for g in goals if (g.get("name") or "").strip()]
+    if not names:
+        return _reset_qual_goal_values(table)
+
+    # Kopfzeile behalten, Rest neu
+    _clear_rows(table, keep=1)
+    tpl = _save_row_tc_pr(table, 0) if table.rows else []
+    for g in goals:
+        name = (g.get("name") or "").strip()
+        if not name:
+            continue
+        row = table.add_row()
+        _ensure_row_width(row, 4)
+        cells = row.cells
+        for ci, txt in enumerate([
+            name,
+            g.get("result") or "—",
+            g.get("status") or "offen",
+            g.get("detail") or "—",
+        ]):
+            if ci < len(cells):
+                if tpl:
+                    _apply_saved_tc_pr(cells[ci], tpl, min(ci, len(tpl) - 1), fallback=0)
+                _set_cell_text(cells[ci], txt)
+    return names
+
+
+def canonical_period_label(period_label: str | None, year: int, through_month: int | None = None) -> str:
+    if period_label:
+        raw = period_label.upper().strip()
+        compact = raw.replace(" ", "")
+        # "1. HJ 2026" → compact "1.HJ2026" — HJ1 vor HJ2 prüfen (sonst trifft "HJ2" in "1.HJ…")
+        if compact.startswith("1.") or "HJ1" in compact:
+            return f"HJ1 {year}"
+        if compact.startswith("2.") or "HJ2" in compact:
+            return f"HJ2 {year}"
+    m = through_month or 6
+    return f"HJ2 {year}" if m > 6 else f"HJ1 {year}"
+
+
 def _build_leitfaden_points(perf_range: str, qual_goal_names: list[str], bilat: BilatData | None) -> list[str]:
     points = [f"1.  Performance {perf_range}: Entwicklung & Trend besprechen"]
     for name in qual_goal_names:
@@ -466,16 +508,21 @@ def build_faktenblatt(
     inputs_all: dict,
     bilat: BilatData | None,
     db: Session,
+    period_label: str | None = None,
 ) -> dict:
     """FK-internes Faktenblatt als JSON (ohne Word)."""
     from calc import MONTH_NAMES_DE
+    from ma_access import CC_KPI_TYPE, cc_kpi_label
+    from qual_goals import list_qual_goals, resolve_qual_goals_for_bilat
 
     perf_rows = _collect_performance(ma, year, through_month, umsatz_all, inputs_all, db)
     zeg_values = [r["zeg"]["zeg_b"] for r in perf_rows if r["zeg"].get("zeg_b") is not None]
     avg_zeg = sum(zeg_values) / len(zeg_values) if zeg_values else None
     perf_range = _period_range(through_month, year)
     bg_pct = f"{round((ma.bg_pct or 0) * 100):.0f}%"
-    qual_goals = _read_qual_goals_from_template(ma.name)
+    period = canonical_period_label(period_label, year, through_month)
+    db_goals = list_qual_goals(db, ma.name, year, period)
+    qual_goals = resolve_qual_goals_for_bilat(db, ma.name, year, period)
     rating_cats = _read_rating_categories_from_template(ma.name)
     points = _build_leitfaden_points(perf_range, [g["name"] for g in qual_goals], bilat)
 
@@ -503,8 +550,6 @@ def build_faktenblatt(
             "umsatz": round(pr["umsatz"] or 0),
         })
 
-    from ma_access import CC_KPI_TYPE, cc_kpi_label
-
     return {
         "ma_name": ma.name,
         "display_name": ma.display_name or ma.name,
@@ -525,6 +570,8 @@ def build_faktenblatt(
         ],
         "kpi_type": CC_KPI_TYPE.get(ma.name),
         "kpi_label": cc_kpi_label(ma.name),
+        "period_label": period,
+        "qual_goals_source": "db" if db_goals else "template",
     }
 
 
@@ -730,7 +777,15 @@ def fill_hj1_template(
 
     qual_goal_names: list[str] = []
     if "qual_goals" in tables:
-        qual_goal_names = _reset_qual_goal_values(tables["qual_goals"])
+        from qual_goals import resolve_qual_goals_for_bilat
+        period_key = canonical_period_label(None, year, through_month)
+        if bilat and bilat.period_label:
+            period_key = canonical_period_label(bilat.period_label, year, through_month)
+        db_or_tpl = resolve_qual_goals_for_bilat(db, ma.name, year, period_key)
+        if db_or_tpl:
+            qual_goal_names = _write_qual_goals_table(tables["qual_goals"], db_or_tpl)
+        else:
+            qual_goal_names = _reset_qual_goal_values(tables["qual_goals"])
 
     if bilat and "ratings" in tables:
         t7 = tables["ratings"]
