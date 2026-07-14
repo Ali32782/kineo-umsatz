@@ -17,6 +17,39 @@ from database import DATA_DIR, MaDocument, QualSignature
 
 DOCUMENTS_ROOT = Path(DATA_DIR) / "documents"
 
+ALLOWED_UPLOAD_EXTENSIONS = {
+    ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".txt",
+    ".png", ".jpg", ".jpeg", ".webp",
+}
+ALLOWED_UPLOAD_MIMES = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "text/csv",
+    "text/plain",
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "application/octet-stream",  # oft bei Browser-Uploads; Extension zählt dann
+}
+
+
+def validate_upload_file(filename: str | None, content_type: str | None) -> str:
+    """Prüft Extension + MIME; gibt den Dateinamen zurück oder wirft ValueError."""
+    import os
+    name = filename or "upload.bin"
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise ValueError(
+            f"Dateityp nicht erlaubt ({ext or 'ohne Endung'}). Erlaubt: PDF, Word, Excel, CSV, TXT, PNG, JPG."
+        )
+    mime = (content_type or "").split(";")[0].strip().lower()
+    if mime and mime not in ALLOWED_UPLOAD_MIMES:
+        raise ValueError(f"MIME-Typ nicht erlaubt: {mime}")
+    return name
+
 
 def _safe_ma_dir(ma_name: str) -> Path | None:
     """Versucht lokalen Cache-Ordner; bei Read-only/ephemeral Fehler → None."""
@@ -112,14 +145,16 @@ def save_bytes_document(
     year: int | None = None,
     period_label: str | None = None,
     notes: str | None = None,
+    commit: bool = True,
 ) -> MaDocument:
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     unique = uuid.uuid4().hex[:8]
-    stored_name = f"{stamp}_{unique}_{filename}"
+    # Dateiname säubern (kein Path-Injection)
+    safe_file = re.sub(r"[^A-Za-z0-9._-]+", "_", filename or "file.bin").strip("._") or "file.bin"
+    stored_name = f"{stamp}_{unique}_{safe_file}"
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", ma_name or "unknown").strip("._") or "unknown"
     rel = f"{safe}/{stored_name}"
 
-    # Optionaler Disk-Cache (Free ohne Disk: wird übersprungen)
     ma_dir = _safe_ma_dir(ma_name)
     if ma_dir is not None:
         try:
@@ -133,7 +168,7 @@ def save_bytes_document(
         doc_type=doc_type,
         year=year,
         period_label=period_label,
-        filename=filename,
+        filename=safe_file,
         relative_path=rel,
         mime_type=mime_type,
         size_bytes=len(content),
@@ -143,8 +178,11 @@ def save_bytes_document(
         created_by=created_by,
     )
     db.add(doc)
-    db.commit()
-    db.refresh(doc)
+    if commit:
+        db.commit()
+        db.refresh(doc)
+    else:
+        db.flush()
     return doc
 
 

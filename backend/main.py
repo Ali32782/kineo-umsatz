@@ -1230,6 +1230,15 @@ class QualGoalItem(BaseModel):
 
 class QualGoalsSaveRequest(BaseModel):
     goals: List[QualGoalItem]
+    unlock_signed: Optional[bool] = False  # True = Signatur ungültig machen und speichern
+
+
+def _validate_upload_file(filename: str | None, content_type: str | None) -> str:
+    from documents_store import validate_upload_file
+    try:
+        return validate_upload_file(filename, content_type)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 def _require_qual_goal_access(ma: MAStammdaten, user: User, db: Session, year: int, period_label: str):
@@ -1306,13 +1315,25 @@ def save_qual_goals(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
     from bilat_hj1_export import canonical_period_label
+    from documents_store import get_signature
     from qual_goals import replace_qual_goals, goals_as_dicts
+    from qual_sign import supersede_signatures
 
     ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
     if not ma:
         raise HTTPException(status_code=404, detail="MA nicht gefunden")
     period = canonical_period_label(period_label, year)
     _require_qual_goal_access(ma, current_user, db, year, period)
+
+    existing_sig = get_signature(db, ma_name, year, period)
+    if existing_sig and not body.unlock_signed:
+        raise HTTPException(
+            status_code=409,
+            detail="Qualis sind unterzeichnet. Zum Ändern zuerst «Bearbeitung freigeben» — die Signatur wird ungültig.",
+        )
+    if existing_sig and body.unlock_signed:
+        supersede_signatures(db, ma_name, year, period)
+
     rows = replace_qual_goals(
         db,
         ma_name=ma_name,
@@ -1322,11 +1343,15 @@ def save_qual_goals(
         updated_by=current_user.username,
     )
     return {
-        "message": f"{len(rows)} Quali-Ziele gespeichert",
+        "message": (
+            f"{len(rows)} Quali-Ziele gespeichert"
+            + (" — Signatur aufgehoben, bitte neu unterzeichnen" if existing_sig and body.unlock_signed else "")
+        ),
         "ma_name": ma_name,
         "period_label": period,
         "goals": goals_as_dicts(rows),
         "source": "db",
+        "signed": False if (existing_sig and body.unlock_signed) else bool(existing_sig and not body.unlock_signed),
     }
 
 
@@ -1344,6 +1369,12 @@ def import_qual_goals_from_template(
         raise HTTPException(status_code=404, detail="MA nicht gefunden")
     period = canonical_period_label(period_label, year)
     _require_qual_goal_access(ma, current_user, db, year, period)
+    from documents_store import get_signature
+    if get_signature(db, ma_name, year, period):
+        raise HTTPException(
+            status_code=409,
+            detail="Qualis sind unterzeichnet — Import blockiert. Zuerst Bearbeitung freigeben.",
+        )
     tpl = _read_qual_goals_from_template(ma_name)
     if not tpl:
         raise HTTPException(status_code=404, detail="Keine Quali-Ziele in der Word-Vorlage")
@@ -1490,19 +1521,21 @@ async def upload_document(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
     from documents_store import document_as_dict, save_bytes_document
+    from bilat_hj1_export import canonical_period_label
 
     ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
     if not ma:
         raise HTTPException(status_code=404, detail="MA nicht gefunden")
     y = year or datetime.utcnow().year
-    period = period_label or f"HJ1 {y}"
+    half = "HJ1" if datetime.utcnow().month <= 6 else "HJ2"
+    period = canonical_period_label(period_label or f"{half} {y}", y)
     _require_qual_goal_access(ma, current_user, db, y, period)
+    fname = _validate_upload_file(file.filename, file.content_type)
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Leere Datei")
     if len(content) > 15 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Datei zu gross (max. 15 MB)")
-    fname = file.filename or "upload.bin"
     doc = save_bytes_document(
         db,
         ma_name=ma_name,

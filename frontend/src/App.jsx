@@ -2002,14 +2002,18 @@ function QualGoalsPage() {
     setMaOk(false)
   }
 
-  const save = async () => {
+  const save = async (unlock = false) => {
     setSaving(true)
     try {
       const res = await api(`/api/qual-goals/${selected.name}/${year}/${encodeURIComponent(period)}`, {
         method: "PUT",
-        body: JSON.stringify({ goals: goals.filter(g => (g.name || "").trim()) }),
+        body: JSON.stringify({
+          goals: goals.filter(g => (g.name || "").trim()),
+          unlock_signed: unlock,
+        }),
       })
       setGoals(res.goals?.length ? res.goals : [])
+      if (unlock) setSignature(null)
       setMsg({ type: "ok", text: res.message || "Gespeichert — Bilats nutzen diese Werte" })
       loadOverview()
     } catch (e) {
@@ -2017,6 +2021,11 @@ function QualGoalsPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const unlockAndEdit = async () => {
+    if (!confirm("Signatur ungültig machen und Qualis bearbeiten? Danach neu unterzeichnen.")) return
+    await save(true)
   }
 
   const importTemplate = async () => {
@@ -2110,46 +2119,57 @@ function QualGoalsPage() {
         )}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {goals.map((g, i) => (
-            <div key={i} style={{ background: "white", borderRadius: 12, padding: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+            <div key={i} style={{ background: "white", borderRadius: 12, padding: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", opacity: signature ? 0.85 : 1 }}>
               <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
                 <input value={g.name || ""} onChange={e => updateGoal(i, "name", e.target.value)}
-                  placeholder="Qualitätsthema / Ziel"
+                  placeholder="Qualitätsthema / Ziel" disabled={!!signature}
                   style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
                 <input value={g.result || ""} onChange={e => updateGoal(i, "result", e.target.value)}
-                  placeholder="Ergebnis (z.B. 91.7%)"
+                  placeholder="Ergebnis (z.B. 91.7%)" disabled={!!signature}
                   style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
-                <select value={g.status || "offen"} onChange={e => updateGoal(i, "status", e.target.value)}
+                <select value={g.status || "offen"} onChange={e => updateGoal(i, "status", e.target.value)} disabled={!!signature}
                   style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }}>
                   {QUAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
               <div style={{ display: "flex", gap: 10 }}>
                 <input value={g.detail || ""} onChange={e => updateGoal(i, "detail", e.target.value)}
-                  placeholder="Detail / Bemerkung"
+                  placeholder="Detail / Bemerkung" disabled={!!signature}
                   style={{ flex: 1, padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
-                <button type="button" onClick={() => setGoals(gs => gs.filter((_, j) => j !== i))}
-                  style={{ padding: "8px 12px", border: "1px solid #DDD", borderRadius: 8, background: "white", cursor: "pointer", color: "#c0392b", fontSize: 12 }}>
-                  Entfernen
-                </button>
+                {!signature && (
+                  <button type="button" onClick={() => setGoals(gs => gs.filter((_, j) => j !== i))}
+                    style={{ padding: "8px 12px", border: "1px solid #DDD", borderRadius: 8, background: "white", cursor: "pointer", color: "#c0392b", fontSize: 12 }}>
+                    Entfernen
+                  </button>
+                )}
               </div>
             </div>
           ))}
         </div>
         <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button type="button" onClick={() => setGoals(gs => [...gs, { name: "", result: "", status: "offen", detail: "" }])}
-            style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #DDD", background: "white", cursor: "pointer", fontWeight: 600 }}>
-            + Ziel hinzufügen
-          </button>
-          {templateGoals.length > 0 && (
+          {!signature && (
+            <button type="button" onClick={() => setGoals(gs => [...gs, { name: "", result: "", status: "offen", detail: "" }])}
+              style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #DDD", background: "white", cursor: "pointer", fontWeight: 600 }}>
+              + Ziel hinzufügen
+            </button>
+          )}
+          {!signature && templateGoals.length > 0 && (
             <button type="button" onClick={importTemplate} disabled={saving}
               style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #004869", background: "white", color: "#004869", cursor: "pointer", fontWeight: 600 }}>
               Aus Word-Vorlage übernehmen
             </button>
           )}
-          <button type="button" onClick={save} disabled={saving}
-            style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "#004869", color: "white", cursor: "pointer", fontWeight: 700, marginLeft: "auto" }}>
-            {saving ? "…" : "Speichern"}
-          </button>
+          {signature ? (
+            <button type="button" onClick={unlockAndEdit} disabled={saving}
+              style={{ padding: "10px 24px", borderRadius: 8, border: "1px solid #c0392b", background: "white", color: "#c0392b", cursor: "pointer", fontWeight: 700, marginLeft: "auto" }}>
+              Bearbeitung freigeben
+            </button>
+          ) : (
+            <button type="button" onClick={() => save(false)} disabled={saving}
+              style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "#004869", color: "white", cursor: "pointer", fontWeight: 700, marginLeft: "auto" }}>
+              {saving ? "…" : "Speichern"}
+            </button>
+          )}
         </div>
 
         <div style={{ marginTop: 28, background: "white", borderRadius: 12, padding: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
@@ -2216,7 +2236,11 @@ function QualGoalsPage() {
       </div>
       <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap", alignItems: "center" }}>
         <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
-          Jahr: <YearSelect value={year} onChange={setYear} years={years} style={selectStyle} />
+          Jahr: <YearSelect value={year} onChange={y => {
+            setYear(y)
+            const half = period.includes("HJ2") || period.startsWith("2.") ? "HJ2" : "HJ1"
+            setPeriod(`${half} ${y}`)
+          }} years={years} style={selectStyle} />
         </label>
         <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
           Periode:
@@ -2263,11 +2287,15 @@ function QualGoalsPage() {
 }
 
 function DocumentsPage() {
+  const years = useAvailableYears()
+  const now = new Date()
   const [docs, setDocs] = useState([])
   const [mas, setMas] = useState([])
   const [filterMa, setFilterMa] = useState("")
   const [uploadMa, setUploadMa] = useState("")
   const [title, setTitle] = useState("")
+  const [uploadYear, setUploadYear] = useState(now.getFullYear())
+  const [uploadPeriod, setUploadPeriod] = useState(`${now.getMonth() < 6 ? "HJ1" : "HJ2"} ${now.getFullYear()}`)
   const [msg, setMsg] = useState(null)
   const [loading, setLoading] = useState(false)
 
@@ -2321,13 +2349,18 @@ function DocumentsPage() {
       const fd = new FormData()
       fd.append("file", file)
       if (title.trim()) fd.append("title", title.trim())
+      fd.append("year", String(uploadYear))
+      fd.append("period_label", uploadPeriod)
       const res = await fetch(`${API}/api/documents/${encodeURIComponent(uploadMa)}/upload`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.detail || "Upload fehlgeschlagen")
+      if (!res.ok) {
+        const detail = Array.isArray(data.detail) ? data.detail.map(d => d.msg || d).join(", ") : data.detail
+        throw new Error(detail || "Upload fehlgeschlagen")
+      }
       setMsg({ type: "ok", text: "Hochgeladen" })
       setTitle("")
       load()
@@ -2375,11 +2408,19 @@ function DocumentsPage() {
             <option value="">MA wählen…</option>
             {mas.map(m => <option key={m.name} value={m.name}>{m.display_name}</option>)}
           </select>
+          <YearSelect value={uploadYear} onChange={y => {
+            setUploadYear(y)
+            const half = uploadPeriod.includes("HJ2") || uploadPeriod.startsWith("2.") ? "HJ2" : "HJ1"
+            setUploadPeriod(`${half} ${y}`)
+          }} years={years} style={selectStyle} />
+          <select value={uploadPeriod} onChange={e => setUploadPeriod(e.target.value)} style={selectStyle}>
+            {[`HJ1 ${uploadYear}`, `HJ2 ${uploadYear}`].map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
           <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Titel (optional)"
             style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12, minWidth: 180 }} />
           <label style={{ padding: "8px 14px", background: "#004869", color: "white", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
             {loading ? "…" : "Datei wählen"}
-            <input type="file" onChange={upload} style={{ display: "none" }} disabled={loading} />
+            <input type="file" accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.txt,.png,.jpg,.jpeg,.webp" onChange={upload} style={{ display: "none" }} disabled={loading} />
           </label>
         </div>
       </div>
@@ -2540,14 +2581,42 @@ function BilatDataPage() {
     })
   }
 
-  const updateQualStatus = async (idx, status) => {
+  const updateQualStatus = async (idx, status, unlock = false) => {
+    if (qualSigned && !unlock) {
+      setMsg({ type: "err", text: "Qualis unterzeichnet — zuerst Bearbeitung freigeben." })
+      return
+    }
     const next = qualGoals.map((g, i) => i === idx ? { ...g, status } : g)
     setQualGoals(next)
     try {
-      await api(`/api/qual-goals/${selected.name}/${year}/${encodeURIComponent(period)}`, {
+      const res = await api(`/api/qual-goals/${selected.name}/${year}/${encodeURIComponent(period)}`, {
         method: "PUT",
-        body: JSON.stringify({ goals: next.filter(g => (g.name || "").trim()) }),
+        body: JSON.stringify({
+          goals: next.filter(g => (g.name || "").trim()),
+          unlock_signed: unlock,
+        }),
       })
+      if (unlock) setQualSigned(null)
+      loadFaktenblatt(selected.name)
+      if (unlock) setMsg({ type: "ok", text: res.message || "Bearbeitung freigegeben" })
+    } catch (e) {
+      setMsg({ type: "err", text: e.message })
+      loadQual(selected.name)
+    }
+  }
+
+  const unlockQualEdit = async () => {
+    if (!confirm("Signatur ungültig machen und Quali-Status bearbeiten? Danach neu unterzeichnen.")) return
+    try {
+      const res = await api(`/api/qual-goals/${selected.name}/${year}/${encodeURIComponent(period)}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          goals: qualGoals.filter(g => (g.name || "").trim()),
+          unlock_signed: true,
+        }),
+      })
+      setQualSigned(null)
+      setMsg({ type: "ok", text: res.message || "Bearbeitung freigegeben" })
       loadFaktenblatt(selected.name)
     } catch (e) {
       setMsg({ type: "err", text: e.message })
@@ -2926,7 +2995,8 @@ function BilatDataPage() {
                     <span style={{ fontWeight: 700, flex: "1 1 160px" }}>{g.name}</span>
                     <span style={{ color: "#004869" }}>{g.result || "—"}</span>
                     <select value={g.status || "offen"} onChange={e => updateQualStatus(i, e.target.value)}
-                      style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12 }}>
+                      disabled={!!qualSigned}
+                      style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12, opacity: qualSigned ? 0.7 : 1 }}>
                       {QUAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
@@ -2934,8 +3004,14 @@ function BilatDataPage() {
               </div>
             )}
             {qualSigned ? (
-              <div style={{ marginTop: 12, fontSize: 12, color: "#1a7a1a", fontWeight: 600 }}>
-                ✓ Qualis unterzeichnet ({qualSigned.fk_display_name} / {qualSigned.ma_display_name})
+              <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                <div style={{ fontSize: 12, color: "#1a7a1a", fontWeight: 600 }}>
+                  ✓ Qualis unterzeichnet ({qualSigned.fk_display_name} / {qualSigned.ma_display_name})
+                </div>
+                <button type="button" onClick={unlockQualEdit}
+                  style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #c0392b", background: "white", color: "#c0392b", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                  Bearbeitung freigeben
+                </button>
               </div>
             ) : qualGoals.length > 0 && (
               <div style={{ marginTop: 14, borderTop: "1px solid #EEE", paddingTop: 14 }}>
@@ -3120,7 +3196,13 @@ function BilatDataPage() {
       <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap", alignItems: "center" }}>
         <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
           Jahr:
-          <YearSelect value={year} onChange={setYear} years={years} style={selectStyle} />
+          <YearSelect value={year} onChange={y => {
+            setYear(y)
+            const half = period.includes("HJ2") || period.startsWith("2.") ? "HJ2" : "HJ1"
+            const next = `${half} ${y}`
+            setPeriod(next)
+            setPeriods(prev => prev.includes(next) ? prev : [...prev, next])
+          }} years={years} style={selectStyle} />
         </label>
         <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
           Periode:

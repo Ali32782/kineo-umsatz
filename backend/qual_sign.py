@@ -12,6 +12,18 @@ from qual_goals import goals_as_dicts, list_qual_goals
 from simple_pdf import build_text_pdf
 
 
+def supersede_signatures(db: Session, ma_name: str, year: int, period_label: str) -> int:
+    """Markiert bestehende Signaturen als überholt (nach Edit / Re-Sign)."""
+    rows = (
+        db.query(QualSignature)
+        .filter_by(ma_name=ma_name, year=year, period_label=period_label, status="signed")
+        .all()
+    )
+    for sig in rows:
+        sig.status = "superseded"
+    return len(rows)
+
+
 def sign_qual_goals(
     db: Session,
     *,
@@ -77,6 +89,9 @@ def sign_qual_goals(
         footer="FK-intern — bestaetigte Quali-Vereinbarung (digital mit Zeitstempel).",
     )
 
+    # Alte Signaturen ungültig + PDF + neue Signatur in einer Transaktion
+    supersede_signatures(db, ma.name, year, period_label)
+
     filename = f"Quali_{ma.name}_{period_label.replace(' ', '_')}_signed.pdf"
     doc = save_bytes_document(
         db,
@@ -90,6 +105,7 @@ def sign_qual_goals(
         year=year,
         period_label=period_label,
         notes=notes,
+        commit=False,
     )
 
     sig = QualSignature(
@@ -111,6 +127,7 @@ def sign_qual_goals(
     db.add(sig)
     db.commit()
     db.refresh(sig)
+    db.refresh(doc)
 
     return {
         "message": "Quali-Ziele unterzeichnet und PDF abgelegt",
