@@ -405,6 +405,125 @@ def _build_leitfaden_points(perf_range: str, qual_goal_names: list[str], bilat: 
     return points
 
 
+def _read_qual_goals_from_template(ma_name: str) -> list[dict]:
+    """Qualitative Ziele inkl. Ergebnis/Status aus der Word-Vorlage (nur lesen)."""
+    try:
+        doc = Document(str(resolve_bilat_template(ma_name)))
+    except FileNotFoundError:
+        return []
+    tables = _find_tables(doc)
+    table = tables.get("qual_goals")
+    if not table:
+        return []
+    goals = []
+    for row in table.rows[1:]:
+        cells = row.cells
+        name = cells[0].text.strip() if cells else ""
+        if not name or name.startswith("Ziel"):
+            continue
+        if "nicht" in name.lower() and "erfasst" in name.lower():
+            continue
+        goals.append({
+            "name": name,
+            "result": cells[1].text.strip() if len(cells) > 1 else "",
+            "status": cells[2].text.strip() if len(cells) > 2 else "",
+            "detail": cells[3].text.strip() if len(cells) > 3 else "",
+        })
+    return goals
+
+
+def _read_rating_categories_from_template(ma_name: str) -> list[dict]:
+    """Kat. A–F Labels aus der Word-Vorlage (für erweiterte FK-Bögen)."""
+    try:
+        doc = Document(str(resolve_bilat_template(ma_name)))
+    except FileNotFoundError:
+        return []
+    tables = _find_tables(doc)
+    table = tables.get("ratings")
+    if not table:
+        return []
+    cats = []
+    for row in table.rows:
+        key = row.cells[0].text.strip() if row.cells else ""
+        if not key.startswith("Kat."):
+            continue
+        parts = key.replace("Kat.", "").strip().split()
+        if not parts:
+            continue
+        letter = parts[0].lower()[:1]
+        if letter not in "abcdef":
+            continue
+        label = row.cells[1].text.strip().split("\n")[0].strip() if len(row.cells) > 1 else key
+        cats.append({"key": letter, "title": key, "label": label})
+    return cats
+
+
+def build_faktenblatt(
+    ma: MAStammdaten,
+    year: int,
+    through_month: int,
+    umsatz_all: dict,
+    inputs_all: dict,
+    bilat: BilatData | None,
+    db: Session,
+) -> dict:
+    """FK-internes Faktenblatt als JSON (ohne Word)."""
+    from calc import MONTH_NAMES_DE
+
+    perf_rows = _collect_performance(ma, year, through_month, umsatz_all, inputs_all, db)
+    zeg_values = [r["zeg"]["zeg_b"] for r in perf_rows if r["zeg"].get("zeg_b") is not None]
+    avg_zeg = sum(zeg_values) / len(zeg_values) if zeg_values else None
+    perf_range = _period_range(through_month, year)
+    bg_pct = f"{round((ma.bg_pct or 0) * 100):.0f}%"
+    qual_goals = _read_qual_goals_from_template(ma.name)
+    rating_cats = _read_rating_categories_from_template(ma.name)
+    points = _build_leitfaden_points(perf_range, [g["name"] for g in qual_goals], bilat)
+
+    months = []
+    for pr in perf_rows:
+        z = pr["zeg"]
+        zeg_b = z.get("zeg_b")
+        months.append({
+            "month": pr["month"],
+            "label": f"{MONTH_NAMES_DE[pr['month']]} {year}",
+            "short": MONTH_SHORT[pr["month"]],
+            "zeg_b": zeg_b,
+            "zeg_pct": _zeg_pct(zeg_b),
+            "vs_ziel": _vs_ziel(zeg_b),
+            "color": zeg_color(zeg_b),
+            "bg_pct": bg_pct,
+            "soll_tage": pr["soll"],
+            "ferien_t": pr["ferien"] or 0,
+            "kurs_h": pr["kurs_h"] or 0,
+            "marketing_h": pr["marketing"] or 0,
+            "laufanalyse_h": pr["lauf"] or 0,
+            "mgmt_t": z.get("mgmt_t") or 0,
+            "krank_t": pr["krank"] or 0,
+            "prod_b": z.get("prod_b"),
+            "umsatz": round(pr["umsatz"] or 0),
+        })
+
+    return {
+        "ma_name": ma.name,
+        "display_name": ma.display_name or ma.name,
+        "team": ma.team,
+        "bg_pct": bg_pct,
+        "perf_range": perf_range,
+        "through_month": through_month,
+        "avg_zeg_b": avg_zeg,
+        "avg_zeg_pct": _zeg_pct(avg_zeg),
+        "performance_comment": _performance_comment(avg_zeg, perf_range),
+        "months": months,
+        "qual_goals": qual_goals,
+        "rating_categories": rating_cats,
+        "leitfaden_points": points,
+        "flow_supports_keys": ["a", "b", "c", "d"],
+        "extended_rating_keys": [
+            c["key"] for c in rating_cats if c["key"] not in ("a", "b", "c", "d")
+        ],
+    }
+
+
 def _add_cell(row) -> None:
     from docx.oxml import OxmlElement
     row._tr.append(OxmlElement("w:tc"))

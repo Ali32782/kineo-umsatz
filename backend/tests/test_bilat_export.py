@@ -70,10 +70,14 @@ def test_generate_bilat_barbara(tmp_path):
         db.close()
 
 
-def test_zeg_fill_mapping():
-    assert _zeg_fill_hex(1.0) == "D5F5E3"
-    assert _zeg_fill_hex(0.9) == "FDEBD0"
-    assert _zeg_fill_hex(0.7) == "FADBD8"
+def test_read_qual_goals_and_extended_ratings():
+    from bilat_hj1_export import _read_qual_goals_from_template, _read_rating_categories_from_template
+    goals = _read_qual_goals_from_template("Noah.S")
+    assert any("Movement Control" in g["name"] for g in goals)
+    hanna = _read_rating_categories_from_template("Hanna.R")
+    keys = {c["key"] for c in hanna}
+    assert keys >= {"a", "b", "c", "d", "e", "f"}
+
 
 
 def test_export_preserves_zeg_colors_and_ratings(tmp_path):

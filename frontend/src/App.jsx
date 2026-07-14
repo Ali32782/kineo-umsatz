@@ -1988,6 +1988,8 @@ function BilatDataPage() {
   const [overview, setOverview] = useState([])
   const [selected, setSelected] = useState(null)
   const [bilatData, setBilatData] = useState({ flow_phase: "fk_prep" })
+  const [faktenblatt, setFaktenblatt] = useState(null)
+  const [faktenOpen, setFaktenOpen] = useState(true)
   const [msg, setMsg] = useState(null)
   const [year, setYear] = useState(now.getFullYear())
   const [period, setPeriod] = useState(defaultPeriod)
@@ -1995,11 +1997,13 @@ function BilatDataPage() {
   const [newPeriod, setNewPeriod] = useState("")
   const [showNewPeriod, setShowNewPeriod] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [wordLoading, setWordLoading] = useState(false)
 
   const phase = bilatData.flow_phase || "fk_prep"
   const deviations = bilatData.deviations || {}
   const hasGrave = deviations.has_grave
   const allMild = deviations.all_mild
+  const showFaktenblatt = phase !== "ma_self"
 
   useEffect(() => {
     api("/api/bilat-periods").then(p => { setPeriods(p); if (!p.includes(period)) setPeriod(p[0] || defaultPeriod) }).catch(console.error)
@@ -2009,11 +2013,41 @@ function BilatDataPage() {
     if (period) api(`/api/bilat-overview/${year}/${encodeURIComponent(period)}`).then(setOverview).catch(console.error)
   }, [year, period])
 
+  const loadFaktenblatt = (maName) => {
+    api(`/api/bilat/${maName}/${year}/${encodeURIComponent(period)}/faktenblatt`)
+      .then(setFaktenblatt)
+      .catch(() => setFaktenblatt(null))
+  }
+
   const openBilat = async (ma) => {
     const data = await api(`/api/bilat/${ma.name}/${year}/${encodeURIComponent(period)}`).catch(() => ({ flow_phase: "fk_prep" }))
     setBilatData(data || { flow_phase: "fk_prep" })
     setSelected(ma)
     setMsg(null)
+    setFaktenOpen(true)
+    loadFaktenblatt(ma.name)
+  }
+
+  const downloadWord = async () => {
+    if (!selected || !faktenblatt?.through_month) return
+    setWordLoading(true)
+    try {
+      const token = localStorage.getItem("token")
+      const month = faktenblatt.through_month
+      const res = await fetch(`${API}/api/export/bilat-single/${year}/${month}/${encodeURIComponent(selected.name)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error("Download fehlgeschlagen")
+      const blob = await res.blob()
+      const a = document.createElement("a")
+      a.href = URL.createObjectURL(blob)
+      a.download = `Bilat_${selected.display_name || selected.name}_${period}.docx`
+      a.click()
+    } catch (e) {
+      setMsg({ type: "err", text: e.message || "Word-Download fehlgeschlagen" })
+    } finally {
+      setWordLoading(false)
+    }
   }
 
   const save = async (flowAction = null) => {
@@ -2027,6 +2061,7 @@ function BilatDataPage() {
       setMsg({ type: "ok", text: flowAction ? "Phase gespeichert" : "Gespeichert" })
       api(`/api/bilat-overview/${year}/${encodeURIComponent(period)}`).then(setOverview)
       api("/api/bilat-periods").then(setPeriods)
+      loadFaktenblatt(selected.name)
     } catch (e) {
       setMsg({ type: "err", text: e.message })
     } finally {
@@ -2110,6 +2145,101 @@ function BilatDataPage() {
           color: msg.type === "ok" ? "#1a7a1a" : "#c0392b",
           padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13,
         }}>{msg.text}</div>
+      )}
+
+      {showFaktenblatt && (
+        <div style={{ background: "white", borderRadius: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 20, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", background: "#F0F4F6", flexWrap: "wrap" }}>
+            <button type="button" onClick={() => setFaktenOpen(o => !o)}
+              style={{ background: "none", border: "none", cursor: "pointer", fontWeight: 800, fontSize: 14, color: "#004869", padding: 0 }}>
+              {faktenOpen ? "▼" : "▶"} Gesprächsinfos (FK-intern)
+            </button>
+            <span style={{ fontSize: 12, color: "#888" }}>
+              {faktenblatt ? `${faktenblatt.perf_range} · Ø ZEG-B ${faktenblatt.avg_zeg_pct}` : "Lade…"}
+            </span>
+            <button type="button" onClick={downloadWord} disabled={wordLoading || !faktenblatt}
+              style={{ marginLeft: "auto", padding: "7px 14px", borderRadius: 8, border: "1px solid #004869", background: "white", color: "#004869", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+              {wordLoading ? "…" : "⬇ Word herunterladen"}
+            </button>
+          </div>
+          {faktenOpen && faktenblatt && (
+            <div style={{ padding: 18 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#004869", marginBottom: 12 }}>
+                {faktenblatt.performance_comment}
+              </div>
+
+              {(faktenblatt.extended_rating_keys || []).length > 0 && (
+                <div style={{ background: "#FFF8E1", border: "1px solid #FFE082", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 12, color: "#6D4C00" }}>
+                  Word-Vorlage hat zusätzliche Kategorien ({faktenblatt.extended_rating_keys.map(k => k.toUpperCase()).join(", ")}).
+                  Der digitale Flow erfasst aktuell nur A–D — bitte E/F bei Bedarf im Word ergänzen.
+                </div>
+              )}
+
+              <div style={{ overflowX: "auto", marginBottom: 18 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: "#004869", color: "white" }}>
+                      {["Monat", "ZEG-B", "vs. Ziel", "Soll", "Ferien", "Krank", "Prod-B", "Umsatz"].map(h => (
+                        <th key={h} style={{ padding: "8px 10px", textAlign: h === "Monat" || h === "Umsatz" ? "left" : "center", fontWeight: 600 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(faktenblatt.months || []).map((m, i) => {
+                      const c = ZEG_COLORS[m.color || "gray"]
+                      return (
+                        <tr key={m.month} style={{ background: i % 2 ? "#F8F9FA" : "white" }}>
+                          <td style={{ padding: "8px 10px", fontWeight: 600 }}>{m.label}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                            <span style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}`, borderRadius: 4, padding: "2px 8px", fontWeight: 700 }}>
+                              {m.zeg_pct}
+                            </span>
+                          </td>
+                          <td style={{ padding: "8px 10px", textAlign: "center", color: "#666" }}>{m.vs_ziel}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "center" }}>{m.soll_tage}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "center" }}>{m.ferien_t ? `-${m.ferien_t}` : "—"}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "center" }}>{m.krank_t ? `-${m.krank_t}` : "—"}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "center" }}>{m.prod_b != null ? m.prod_b : "—"}</td>
+                          <td style={{ padding: "8px 10px", fontWeight: 600 }}>CHF {(m.umsatz || 0).toLocaleString("de-CH")}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {(faktenblatt.qual_goals || []).length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: "#004869", marginBottom: 8 }}>Qualitative Ziele</div>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {faktenblatt.qual_goals.map((g, i) => (
+                      <div key={i} style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, padding: "8px 10px", background: "#F8FAFB", borderRadius: 8 }}>
+                        <span style={{ fontWeight: 700, minWidth: 180 }}>{g.name}</span>
+                        <span style={{ color: "#004869" }}>{g.result || "—"}</span>
+                        <span style={{ color: "#888" }}>{g.status || ""}</span>
+                        {g.detail && <span style={{ color: "#666" }}>{g.detail}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(faktenblatt.leitfaden_points || []).length > 0 && (
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: "#004869", marginBottom: 8 }}>Gesprächspunkte</div>
+                  <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "#333", lineHeight: 1.6 }}>
+                    {faktenblatt.leitfaden_points.map((p, i) => (
+                      <li key={i}>{p.replace(/^\d+\.\s*/, "")}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </div>
+          )}
+          {faktenOpen && !faktenblatt && (
+            <div style={{ padding: 18, fontSize: 13, color: "#888" }}>Gesprächsinfos werden geladen…</div>
+          )}
+        </div>
       )}
 
       {/* Phase: FK Vorbereitung */}

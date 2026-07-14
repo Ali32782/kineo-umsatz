@@ -1066,10 +1066,52 @@ def get_bilat_periods(db: Session = Depends(get_db), current_user: User = Depend
 
 @app.get("/api/bilat/{ma_name}/{year}/{period_label}")
 def get_bilat(ma_name: str, year: int, period_label: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from ma_access import TEAM_SCOPE_ROLES, ma_visible_to_user
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+    if not ma:
+        raise HTTPException(status_code=404, detail="MA nicht gefunden")
+    if current_user.role in TEAM_SCOPE_ROLES:
+        if not ma_visible_to_user(ma, current_user, db, year=year, months=months_for_period(period_label)):
+            raise HTTPException(status_code=403, detail="Keine Berechtigung")
     b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period_label).first()
     if not b:
         return _bilat_response(None)
     return _bilat_response(b)
+
+
+@app.get("/api/bilat/{ma_name}/{year}/{period_label}/faktenblatt")
+def get_bilat_faktenblatt(
+    ma_name: str, year: int, period_label: str,
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+):
+    """FK-internes Faktenblatt (Performance, Qualiziele, Leitfaden) — auch ohne Word."""
+    from calc import reporting_through_month
+    from bilat_hj1_export import build_faktenblatt
+    from ma_access import TEAM_SCOPE_ROLES, ma_visible_to_user
+
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+    if not ma:
+        raise HTTPException(status_code=404, detail="MA nicht gefunden")
+    period_months = months_for_period(period_label)
+    if current_user.role in TEAM_SCOPE_ROLES:
+        if not ma_visible_to_user(ma, current_user, db, year=year, months=period_months):
+            raise HTTPException(status_code=403, detail="Keine Berechtigung")
+
+    through_report = reporting_through_month(year)
+    through_month = min(max(period_months), through_report) if through_report else max(period_months)
+    if through_month <= 0:
+        raise HTTPException(status_code=400, detail="Keine abgeschlossenen Monate für diese Periode")
+
+    umsatz_rows = db.query(UmsatzData).filter(
+        UmsatzData.ma_name == ma_name, UmsatzData.year == year,
+    ).all()
+    umsatz_all = {(r.ma_name, r.month): r.umsatz for r in umsatz_rows}
+    input_rows = db.query(MonthlyInput).filter(
+        MonthlyInput.ma_name == ma_name, MonthlyInput.year == year,
+    ).all()
+    inputs_all = {(r.ma_name, r.month): r for r in input_rows}
+    bilat = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period_label).first()
+    return build_faktenblatt(ma, year, through_month, umsatz_all, inputs_all, bilat, db)
 
 @app.post("/api/bilat/{ma_name}/{year}/{period_label}")
 def save_bilat(ma_name: str, year: int, period_label: str, body: BilatSaveRequest,
