@@ -10,7 +10,7 @@ from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
 from sqlalchemy.orm import Session
 
-from bilat_template_map import resolve_bilat_template
+from bilat_template_map import has_own_bilat_template, resolve_bilat_template
 from calc import MONTH_NAMES_DE, ZIEL, compute_soll_tage, compute_zeg, is_employed_in_month, zeg_color
 from database import BilatData, MAStammdaten, User
 
@@ -374,7 +374,7 @@ def _standort_funktion(ma: MAStammdaten) -> str:
 
 
 def _reset_qual_goal_values(table) -> list[str]:
-    """Zielnamen aus Vorlage behalten; Ergebnis/Status nicht in App → leeren."""
+    """Zielnamen aus eigener Vorlage behalten; Ergebnis/Status nicht in App → leeren."""
     names: list[str] = []
     for row in table.rows[1:]:
         cells = row.cells
@@ -391,11 +391,17 @@ def _reset_qual_goal_values(table) -> list[str]:
     return names
 
 
+def _clear_qual_goals_table(table) -> list[str]:
+    """Entfernt Fremd-Vorlagen-Ziele (z. B. Default Barbara für CC ohne eigene Vorlage)."""
+    _clear_rows(table, keep=1)
+    return []
+
+
 def _write_qual_goals_table(table, goals: list[dict]) -> list[str]:
     """Schreibt Management-Qualiziele in die Word-Tabelle; gibt Namen zurück."""
     names = [g["name"] for g in goals if (g.get("name") or "").strip()]
     if not names:
-        return _reset_qual_goal_values(table)
+        return _clear_qual_goals_table(table)
 
     # Kopfzeile behalten, Rest neu
     _clear_rows(table, keep=1)
@@ -433,8 +439,10 @@ def canonical_period_label(period_label: str | None, year: int, through_month: i
     return f"HJ2 {year}" if m > 6 else f"HJ1 {year}"
 
 
-def _build_leitfaden_points(perf_range: str, qual_goal_names: list[str], bilat: BilatData | None) -> list[str]:
-    points = [f"1.  Performance {perf_range}: Entwicklung & Trend besprechen"]
+def _build_leitfaden_points(perf_range: str | None, qual_goal_names: list[str], bilat: BilatData | None) -> list[str]:
+    points: list[str] = []
+    if perf_range:
+        points.append(f"1.  Performance {perf_range}: Entwicklung & Trend besprechen")
     for name in qual_goal_names:
         if "nicht" in name.lower() and "erfasst" in name.lower():
             continue
@@ -448,9 +456,12 @@ def _build_leitfaden_points(perf_range: str, qual_goal_names: list[str], bilat: 
 
 
 def _read_qual_goals_from_template(ma_name: str) -> list[dict]:
-    """Qualitative Ziele inkl. Ergebnis/Status aus der Word-Vorlage (nur lesen)."""
+    """Qualitative Ziele inkl. Ergebnis/Status aus der eigenen Word-Vorlage (nur lesen)."""
+    if not has_own_bilat_template(ma_name):
+        return []
+    own = resolve_bilat_template(ma_name)
     try:
-        doc = Document(str(resolve_bilat_template(ma_name)))
+        doc = Document(str(own))
     except FileNotFoundError:
         return []
     tables = _find_tables(doc)
@@ -475,7 +486,9 @@ def _read_qual_goals_from_template(ma_name: str) -> list[dict]:
 
 
 def _read_rating_categories_from_template(ma_name: str) -> list[dict]:
-    """Kat. A–F Labels aus der Word-Vorlage (für erweiterte FK-Bögen)."""
+    """Kat. A–F Labels aus der eigenen Word-Vorlage (für erweiterte FK-Bögen)."""
+    if not has_own_bilat_template(ma_name):
+        return []
     try:
         doc = Document(str(resolve_bilat_template(ma_name)))
     except FileNotFoundError:
@@ -514,6 +527,7 @@ def build_faktenblatt(
     from calc import MONTH_NAMES_DE
     from ma_access import CC_KPI_TYPE, cc_kpi_label
     from qual_goals import list_qual_goals, resolve_qual_goals_for_bilat
+    from bilat_template_map import has_own_bilat_template
 
     perf_rows = _collect_performance(ma, year, through_month, umsatz_all, inputs_all, db)
     zeg_values = [r["zeg"]["zeg_b"] for r in perf_rows if r["zeg"].get("zeg_b") is not None]
@@ -524,7 +538,12 @@ def build_faktenblatt(
     db_goals = list_qual_goals(db, ma.name, year, period)
     qual_goals = resolve_qual_goals_for_bilat(db, ma.name, year, period)
     rating_cats = _read_rating_categories_from_template(ma.name)
-    points = _build_leitfaden_points(perf_range, [g["name"] for g in qual_goals], bilat)
+    kpi_type = CC_KPI_TYPE.get(ma.name)
+    # Keine Fake-Gesprächspunkte: Performance-Punkt nur bei Umsatz-KPI; Quali nur aus DB/eigener Vorlage
+    if kpi_type in ("mitglieder", "keine"):
+        points = _build_leitfaden_points(None, [g["name"] for g in qual_goals], bilat)
+    else:
+        points = _build_leitfaden_points(perf_range, [g["name"] for g in qual_goals], bilat)
 
     months = []
     for pr in perf_rows:
@@ -571,7 +590,9 @@ def build_faktenblatt(
         "kpi_type": CC_KPI_TYPE.get(ma.name),
         "kpi_label": cc_kpi_label(ma.name),
         "period_label": period,
-        "qual_goals_source": "db" if db_goals else "template",
+        "qual_goals_source": (
+            "db" if db_goals else ("template" if has_own_bilat_template(ma.name) and qual_goals else "none")
+        ),
     }
 
 
@@ -784,8 +805,11 @@ def fill_hj1_template(
         db_or_tpl = resolve_qual_goals_for_bilat(db, ma.name, year, period_key)
         if db_or_tpl:
             qual_goal_names = _write_qual_goals_table(tables["qual_goals"], db_or_tpl)
-        else:
+        elif has_own_bilat_template(ma.name):
             qual_goal_names = _reset_qual_goal_values(tables["qual_goals"])
+        else:
+            # Keine Fake-Ziele aus Default-Vorlage (z. B. Barbara für CC)
+            qual_goal_names = _clear_qual_goals_table(tables["qual_goals"])
 
     if bilat and "ratings" in tables:
         t7 = tables["ratings"]
@@ -845,11 +869,20 @@ def fill_hj1_template(
 
     if "leitfaden" in tables:
         t20 = tables["leitfaden"]
-        points = _build_leitfaden_points(perf_range, qual_goal_names, bilat)
-        _set_cell_text(t20.rows[0].cells[0], f"Performance-Einschätzung:\n{_performance_comment(avg_zeg, perf_range)}")
+        from ma_access import CC_KPI_TYPE
+        kpi_type = CC_KPI_TYPE.get(ma.name)
+        leit_perf = None if kpi_type in ("mitglieder", "keine") else perf_range
+        points = _build_leitfaden_points(leit_perf, qual_goal_names, bilat)
+        if leit_perf:
+            _set_cell_text(t20.rows[0].cells[0], f"Performance-Einschätzung:\n{_performance_comment(avg_zeg, perf_range)}")
+        else:
+            _set_cell_text(t20.rows[0].cells[0], "Performance-Einschätzung:\n— (kein Umsatz-KPI)")
         if len(t20.rows) > 1:
-            _set_cell_text(t20.rows[1].cells[0],
-                           "Vorbereitete Gesprächspunkte:\n" + "\n".join(f"| {p}" for p in points))
+            if points:
+                _set_cell_text(t20.rows[1].cells[0],
+                               "Vorbereitete Gesprächspunkte:\n" + "\n".join(f"| {p}" for p in points))
+            else:
+                _set_cell_text(t20.rows[1].cells[0], "Vorbereitete Gesprächspunkte:\n— (über Quali-Themen in der App pflegen)")
         if len(t20.rows) > 2:
             _set_cell_text(t20.rows[2].cells[0],
                            "Vereinbarungen vorbereiten:\nKonkrete nächste Schritte für jedes offene / kritische Ziel festlegen.")

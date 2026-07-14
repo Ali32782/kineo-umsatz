@@ -34,7 +34,8 @@ MA_BILAT_TEMPLATE: dict[str, str] = {
 DEFAULT_TEMPLATE = "Bilat_Barbara_V_HJ1_2026.docx"
 
 
-def resolve_bilat_template(ma_name: str) -> Path:
+def _own_template_path(ma_name: str) -> Path | None:
+    """Eigene MA-Vorlage (ohne Default-Fallback auf eine andere Person)."""
     filename = MA_BILAT_TEMPLATE.get(ma_name)
     if filename:
         path = TEMPLATES_DIR / filename
@@ -45,6 +46,18 @@ def resolve_bilat_template(ma_name: str) -> Path:
         matches = sorted(TEMPLATES_DIR.glob(pattern))
         if matches:
             return matches[0]
+    return None
+
+
+def has_own_bilat_template(ma_name: str) -> bool:
+    """True nur bei individueller Vorlage — CC o. Ä. ohne Fake-Fremdinhalte."""
+    return _own_template_path(ma_name) is not None
+
+
+def resolve_bilat_template(ma_name: str) -> Path:
+    own = _own_template_path(ma_name)
+    if own is not None:
+        return own
     fallback = TEMPLATES_DIR / DEFAULT_TEMPLATE
     if fallback.is_file():
         return fallback

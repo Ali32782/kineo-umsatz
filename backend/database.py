@@ -652,6 +652,26 @@ def migrate_schedule_halbtag_units():
         db.commit()
     db.close()
 
+def _fix_pamela_fk_sereina():
+    """Pamela Possamai (CC) berichtet an Sereina — erzwingen falls abweichend."""
+    db = SessionLocal()
+    try:
+        ma = db.query(MAStammdaten).filter_by(name="Pamela.P").first()
+        if not ma:
+            return
+        changed = False
+        if ma.fk_username != "sereina":
+            ma.fk_username = "sereina"
+            changed = True
+        if ma.team != "CC":
+            ma.team = "CC"
+            changed = True
+        if changed:
+            db.commit()
+    finally:
+        db.close()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     migrate_schema()
@@ -665,7 +685,10 @@ def init_db():
     run_migration_once("sl_user_roles_v1", _backfill_standortlead_user_roles)
     run_migration_once("ma_fk_usernames_v1", _backfill_ma_fk_usernames)
     run_migration_once("cc_team_pamela_v1", _seed_cc_team_pamela)
+    run_migration_once("cc_pamela_fk_sereina_v2", _fix_pamela_fk_sereina)
     _backfill_sereina_coo()
+    # Idempotent: FK Pam → Sereina bei jedem Start absichern
+    _fix_pamela_fk_sereina()
 
 def seed_initial_data():
     """Seed users and MA Stammdaten on first run"""

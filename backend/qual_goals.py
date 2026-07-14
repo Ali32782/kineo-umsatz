@@ -74,9 +74,12 @@ def resolve_qual_goals_for_bilat(
     year: int,
     period_label: str,
 ) -> list[dict]:
-    """DB zuerst; sonst Word-Vorlage als Fallback (nur lesen)."""
+    """DB zuerst; sonst nur eigene Word-Vorlage (kein Default-Fremd-Template)."""
     rows = list_qual_goals(db, ma_name, year, period_label)
     if rows:
         return goals_as_dicts(rows)
+    from bilat_template_map import has_own_bilat_template
+    if not has_own_bilat_template(ma_name):
+        return []
     from bilat_hj1_export import _read_qual_goals_from_template
     return _read_qual_goals_from_template(ma_name)
