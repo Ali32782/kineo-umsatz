@@ -829,7 +829,7 @@ def fill_hj1_template(
 
     if bilat and "ratings" in tables:
         t7 = tables["ratings"]
-        kat_rows = {2: "a", 4: "b", 6: "c", 8: "d"}
+        kat_rows = {2: "a", 4: "b", 6: "c", 8: "d", 10: "e", 12: "f"}
         for row_idx, key in kat_rows.items():
             if row_idx >= len(t7.rows):
                 continue

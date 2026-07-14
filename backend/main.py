@@ -50,8 +50,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-Cron-Secret"],
+    allow_methods=["*"],
+    allow_headers=["*"],
     expose_headers=["Content-Disposition", "Content-Length"],
 )
 
@@ -81,6 +81,8 @@ def _download_response(path: str, *, media_type: str, filename: str) -> Response
 @app.on_event("startup")
 def startup():
     init_db()
+    from database import ensure_bilat_ef_columns
+    ensure_bilat_ef_columns()
 
 # ── Auth ──────────────────────────────────────────────────────────────────
 class Token(BaseModel):
@@ -1257,7 +1259,7 @@ def _clamp_rating(v):
 
 def _apply_bilat_fields(b: BilatData, data: BilatInput, phase: str) -> None:
     from bilat_flow import PHASE_FK_PREP, PHASE_MA_SELF, format_vereinbarungen
-    dump = data.model_dump()
+    dump = data.model_dump(exclude_unset=False)
     items = dump.pop("vereinbarungen_items", None)
     if items is not None:
         # Explizit leeren erlauben (kein Fallback auf alten Text)
@@ -1270,6 +1272,9 @@ def _apply_bilat_fields(b: BilatData, data: BilatInput, phase: str) -> None:
         allowed = {k for k in dump if k != "vereinbarungen_items"}
     for k, v in dump.items():
         if k not in allowed:
+            continue
+        # Nur echte Tabellen-Spalten setzen (nach Migration E/F)
+        if not hasattr(b, k) or k not in BilatData.__table__.columns:
             continue
         if k.endswith("_self") or k.endswith("_fk"):
             v = _clamp_rating(v)
@@ -1294,6 +1299,8 @@ def get_bilat_periods(db: Session = Depends(get_db), current_user: User = Depend
 def get_bilat(ma_name: str, year: int, period_label: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     from bilat_hj1_export import canonical_period_label
     from ma_access import TEAM_SCOPE_ROLES, ma_visible_to_user
+    from database import ensure_bilat_ef_columns
+    ensure_bilat_ef_columns()
     ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
     if not ma:
         raise HTTPException(status_code=404, detail="MA nicht gefunden")
@@ -1355,6 +1362,10 @@ def save_bilat(ma_name: str, year: int, period_label: str, body: BilatSaveReques
     from bilat_flow import PHASE_FK_PREP, advance_phase
     from bilat_hj1_export import canonical_period_label
     from ma_access import TEAM_SCOPE_ROLES, ma_visible_to_user
+    from database import ensure_bilat_ef_columns
+    from sqlalchemy.exc import ProgrammingError, OperationalError
+
+    ensure_bilat_ef_columns()
 
     ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
     if not ma:
@@ -1380,7 +1391,15 @@ def save_bilat(ma_name: str, year: int, period_label: str, body: BilatSaveReques
             raise HTTPException(status_code=400, detail=str(e))
     b.updated_at = datetime.utcnow()
     b.updated_by = current_user.username
-    db.commit()
+    try:
+        db.commit()
+    except (ProgrammingError, OperationalError) as e:
+        db.rollback()
+        ensure_bilat_ef_columns()
+        raise HTTPException(
+            status_code=503,
+            detail="Datenbank wurde aktualisiert (Kat. E/F). Bitte Speichern erneut drücken.",
+        ) from e
     db.refresh(b)
     return _bilat_response(b)
 

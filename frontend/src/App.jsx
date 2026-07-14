@@ -16,7 +16,13 @@ async function api(path, opts = {}) {
     ...opts,
   })
   if (res.status === 401) { localStorage.clear(); window.location.reload() }
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Fehler") }
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}))
+    const detail = Array.isArray(e.detail)
+      ? e.detail.map(d => d.msg || JSON.stringify(d)).join(", ")
+      : (e.detail || `Fehler (${res.status})`)
+    throw new Error(detail)
+  }
   return res.json()
 }
 
@@ -2813,20 +2819,31 @@ function BilatDataPage() {
     }
   }
 
-  const save = async (flowAction = null) => {
+  const save = async (flowAction = null, isRetry = false) => {
     setSaving(true)
     try {
       const res = await api(`/api/bilat/${selected.name}/${year}/${encodeURIComponent(period)}`, {
         method: "POST",
         body: JSON.stringify({ data: bilatPayload(bilatData), flow_action: flowAction }),
       })
-      setBilatData(res)
+      setBilatData(prev => ({ ...prev, ...res }))
       setMsg({ type: "ok", text: flowAction ? "Phase gespeichert" : "Gespeichert" })
       api(`/api/bilat-overview/${year}/${encodeURIComponent(period)}`).then(setOverview)
       api("/api/bilat-periods").then(setPeriods)
       loadFaktenblatt(selected.name)
     } catch (e) {
-      setMsg({ type: "err", text: e.message })
+      const text = e.message || "Speichern fehlgeschlagen"
+      if (!isRetry && (text.includes("aktualisiert") || text.includes("Schema") || text.includes("503"))) {
+        setMsg({ type: "err", text: "Schema-Update — speichere erneut…" })
+        setSaving(false)
+        return save(flowAction, true)
+      }
+      setMsg({
+        type: "err",
+        text: text === "Failed to fetch"
+          ? "Verbindung fehlgeschlagen — Seite neu laden und erneut speichern."
+          : text,
+      })
     } finally {
       setSaving(false)
     }
@@ -3037,40 +3054,24 @@ function BilatDataPage() {
 
       {/* Phase: FK Vorbereitung */}
       {phase === "fk_prep" && (
-        <div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20 }}>
-            {KAT_KEYS_REQUIRED.map(k => (
-              <div key={k} style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>
-                  Kat. {k.toUpperCase()} — {KAT_LABELS[k]}
-                </h4>
-                <RatingButtons field={`kat_${k}_fk`} label="Einschätzung Führungskraft (1–5)" />
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Notiz FK (optional)</div>
-                  <textarea value={bilatData[`kat_${k}_comment`] || ""}
-                    onChange={e => setBilatData({ ...bilatData, [`kat_${k}_comment`]: e.target.value })}
-                    style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 60, boxSizing: "border-box" }} />
-                </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20 }}>
+          {KAT_KEYS_ALL.map(k => (
+            <div key={k} style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>
+                Kat. {k.toUpperCase()} — {KAT_LABELS[k]}
+                {!KAT_KEYS_REQUIRED.includes(k) && (
+                  <span style={{ fontWeight: 500, color: "#888", fontSize: 12 }}> (optional)</span>
+                )}
+              </h4>
+              <RatingButtons field={`kat_${k}_fk`} label="Einschätzung Führungskraft (1–5)" />
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Notiz FK (optional)</div>
+                <textarea value={bilatData[`kat_${k}_comment`] || ""}
+                  onChange={e => setBilatData({ ...bilatData, [`kat_${k}_comment`]: e.target.value })}
+                  style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 60, boxSizing: "border-box" }} />
               </div>
-            ))}
-          </div>
-          <div style={{ marginTop: 20, fontSize: 13, fontWeight: 700, color: "#004869" }}>Optional — Kat. E/F</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20, marginTop: 10 }}>
-            {["e", "f"].map(k => (
-              <div key={k} style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", opacity: 0.95 }}>
-                <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>
-                  Kat. {k.toUpperCase()} — {KAT_LABELS[k]}
-                </h4>
-                <RatingButtons field={`kat_${k}_fk`} label="Einschätzung Führungskraft (1–5)" />
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Notiz FK (optional)</div>
-                  <textarea value={bilatData[`kat_${k}_comment`] || ""}
-                    onChange={e => setBilatData({ ...bilatData, [`kat_${k}_comment`]: e.target.value })}
-                    style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 60, boxSizing: "border-box" }} />
-                </div>
-              </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
       )}
 

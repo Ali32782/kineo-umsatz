@@ -521,6 +521,16 @@ def _migrate_bilat_kat_ef():
         for col in missing:
             typ = "TEXT" if col.endswith("_comment") else "INTEGER"
             conn.execute(text(f"ALTER TABLE bilat_data ADD COLUMN {col} {typ}"))
+    # Schema-Cache leeren, sonst kennt SQLAlchemy die Spalten noch nicht
+    try:
+        inspect(engine).clear_cache()
+    except Exception:
+        pass
+
+
+def ensure_bilat_ef_columns() -> None:
+    """Öffentlich: vor Bilat-Save/Load aufrufen (Render Free / bestehende DBs)."""
+    _migrate_bilat_kat_ef()
 
 
 def _migrate_ma_documents_content():
