@@ -1,4 +1,5 @@
 import { useState, useEffect, createContext, useContext, useMemo, useRef } from "react"
+import { createPortal } from "react-dom"
 import { API, CURRENT_YEAR, DEFAULT_YEAR, DEFAULT_MONTH, periodForMonth } from "./config.js"
 import { CD, KineoLogo, NavIcon, ScheduleHelp, Bell, LogOut, Calendar, Users, formatRoleLabel, hasFullAccess, FULL_ACCESS_ROLES } from "./brand.jsx"
 
@@ -911,6 +912,124 @@ function UploadPage() {
 }
 
 // ── YTD Overview Page ──────────────────────────────────────────────────────
+const OUTLIER_PP = 0.15 // ±15 Prozentpunkte vs. eigener Ø ZEG-B
+
+function formatPct(value) {
+  return value != null ? `${(value * 100).toFixed(1)}%` : "—"
+}
+
+function formatChf(value) {
+  if (value == null || value === 0) return "—"
+  return `CHF ${Number(value).toLocaleString("de-CH")}`
+}
+
+function formatTage(value) {
+  if (value == null) return "—"
+  return Number(value).toLocaleString("de-CH", { maximumFractionDigits: 1 })
+}
+
+function isZegOutlier(zeg, avgZeg) {
+  if (zeg == null || avgZeg == null) return false
+  return Math.abs(zeg - avgZeg) >= OUTLIER_PP
+}
+
+function MonthCellTooltip({ monthLabel, cell, avgZeg, anchorRect }) {
+  const zeg = cell?.zeg_b
+  const delta = (zeg != null && avgZeg != null) ? zeg - avgZeg : null
+  const rows = [
+    ["Umsatz", formatChf(cell?.umsatz)],
+    ["ZEG-B", formatPct(zeg)],
+    ["Prod-Tage (B)", formatTage(cell?.prod_b)],
+    ["Soll-Tage", formatTage(cell?.soll_tage)],
+  ]
+  if (cell?.ferien_t) rows.push(["Ferien", `${formatTage(cell.ferien_t)} T`])
+  if (cell?.krank_t) rows.push(["Krank", `${formatTage(cell.krank_t)} T`])
+  if (delta != null) {
+    const sign = delta >= 0 ? "+" : ""
+    rows.push(["vs. eigener Ø", `${sign}${(delta * 100).toFixed(1)} pp`])
+  }
+
+  const tipW = 180
+  const tipH = 28 + rows.length * 18
+  const gap = 8
+  let left = (anchorRect?.left || 0) + (anchorRect?.width || 0) / 2 - tipW / 2
+  left = Math.max(8, Math.min(left, window.innerWidth - tipW - 8))
+  const preferAbove = (anchorRect?.top || 0) > tipH + gap + 8
+  const top = preferAbove
+    ? (anchorRect?.top || 0) - tipH - gap
+    : (anchorRect?.bottom || 0) + gap
+
+  return (
+    <div style={{
+      position: "fixed", top, left, width: tipW,
+      background: "#1a2a32", color: "white", borderRadius: 8, padding: "10px 12px",
+      fontSize: 11, lineHeight: 1.45, zIndex: 9999,
+      boxShadow: "0 6px 18px rgba(0,0,0,0.22)", pointerEvents: "none", textAlign: "left",
+      boxSizing: "border-box",
+    }}>
+      <div style={{ fontWeight: 700, marginBottom: 6, fontSize: 12 }}>{monthLabel}</div>
+      {rows.map(([label, value]) => (
+        <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+          <span style={{ opacity: 0.72 }}>{label}</span>
+          <span style={{ fontWeight: 600 }}>{value}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function OverviewMonthCell({ cell, monthLabel, viewMode, avgZeg }) {
+  const [hover, setHover] = useState(false)
+  const [anchorRect, setAnchorRect] = useState(null)
+  const ref = useRef(null)
+
+  if (!cell) return <span style={{ color: "#DDD", fontSize: 11 }}>—</span>
+
+  const outlier = viewMode === "zeg" && isZegOutlier(cell.zeg_b, avgZeg)
+  const content = viewMode === "zeg"
+    ? <ZEGBadge value={cell.zeg_b} color={cell.color} />
+    : (
+      <span style={{
+        display: "inline-block", minWidth: 56, padding: "4px 6px", fontSize: 11, fontWeight: 600,
+        color: "#004869", background: "#F0F4F6", borderRadius: 4, textAlign: "center",
+      }}>
+        {(cell.umsatz || 0) ? cell.umsatz.toLocaleString("de-CH") : "—"}
+      </span>
+    )
+
+  const showTip = () => {
+    if (ref.current) setAnchorRect(ref.current.getBoundingClientRect())
+    setHover(true)
+  }
+
+  return (
+    <span
+      ref={ref}
+      onMouseEnter={showTip}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center",
+        cursor: "default",
+        outline: outlier ? "2px solid #004869" : undefined,
+        outlineOffset: outlier ? 2 : undefined,
+        borderRadius: 6,
+      }}
+    >
+      {content}
+      {outlier && (
+        <span style={{
+          position: "absolute", top: -3, right: -3, width: 7, height: 7, borderRadius: "50%",
+          background: "#004869", border: "1.5px solid white",
+        }} />
+      )}
+      {hover && anchorRect && createPortal(
+        <MonthCellTooltip monthLabel={monthLabel} cell={cell} avgZeg={avgZeg} anchorRect={anchorRect} />,
+        document.body
+      )}
+    </span>
+  )
+}
+
 function UmsatzCell({ value }) {
   if (!value) return <span style={{ color: "#DDD", fontSize: 11 }}>—</span>
   return (
@@ -1116,13 +1235,16 @@ function OverviewPage() {
                   <td style={{ padding: "8px 8px", textAlign: "center", color: "#888", fontSize: 10, lineHeight: 1.35 }}>
                     {maStandorteList(ma).join(" · ") || "—"}
                   </td>
-                  {visibleMonths.map((_, mi) => {
+                  {visibleMonths.map((monthLabel, mi) => {
                     const m = (ma.monthly || [])[mi]
                     return (
                     <td key={mi} style={{ padding: "6px 4px", textAlign: "center" }}>
-                      {viewMode === "zeg"
-                        ? (m ? <ZEGBadge value={m.zeg_b} color={m.color} /> : <span style={{ color: "#DDD", fontSize: 11 }}>—</span>)
-                        : <UmsatzCell value={m?.umsatz} />}
+                      <OverviewMonthCell
+                        cell={m}
+                        monthLabel={monthLabel}
+                        viewMode={viewMode}
+                        avgZeg={ma.avg_zeg_b}
+                      />
                     </td>
                     )
                   })}
@@ -1160,14 +1282,30 @@ function OverviewPage() {
         </div>
       </div>
       {viewMode === "zeg" && (
-      <div style={{ marginTop: 16, display: "flex", gap: 16, fontSize: 12, color: "#888" }}>
+      <div style={{ marginTop: 16, display: "flex", gap: 16, fontSize: 12, color: "#888", flexWrap: "wrap", alignItems: "center" }}>
         {[["green","≥ 100%"],["amber","85–99%"],["red","< 85%"]].map(([c,l]) => (
           <div key={c} style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{ width: 12, height: 12, borderRadius: "50%", background: ZEG_COLORS[c].border }}/>
             {l}
           </div>
         ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{
+            width: 22, height: 14, borderRadius: 4, border: "2px solid #004869", position: "relative", display: "inline-block",
+          }}>
+            <span style={{
+              position: "absolute", top: -3, right: -3, width: 6, height: 6, borderRadius: "50%",
+              background: "#004869", border: "1px solid white",
+            }} />
+          </span>
+          Ausreisser (±15 pp vs. eigener Ø) · Hover zeigt Umsatz & Prod-Tage
+        </div>
       </div>
+      )}
+      {viewMode === "umsatz" && (
+        <div style={{ marginTop: 16, fontSize: 12, color: "#888" }}>
+          Hover auf Monatszellen zeigt ZEG-B, Soll- und Prod-Tage.
+        </div>
       )}
     </div>
   )

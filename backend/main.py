@@ -641,21 +641,31 @@ def get_ytd(
                 eintritt=eintritt,
                 austritt=austritt,
             )
+            ferien_t = inp.ferien_t if inp else 0
+            krank_t = inp.krank_t if inp else 0
             if umsatz == 0 and soll == 0 and not inp:
                 monthly.append(None)
                 continue
             if umsatz == 0:
-                monthly.append({"umsatz": 0, "zeg_b": None, "color": "gray"})
+                monthly.append({
+                    "umsatz": 0,
+                    "zeg_b": None,
+                    "color": "gray",
+                    "soll_tage": round(soll, 2),
+                    "prod_b": None,
+                    "ferien_t": ferien_t,
+                    "krank_t": krank_t,
+                })
                 continue
             total_umsatz += umsatz
             zeg = compute_zeg(
                 name, year, m, umsatz,
-                ferien_t=inp.ferien_t if inp else 0,
+                ferien_t=ferien_t,
                 kurs_h=inp.kurs_h if inp else 0,
                 workshop_h=inp.workshop_h if inp else 0,
                 marketing_h=inp.marketing_h if inp else 0,
                 laufanalyse_h=inp.laufanalyse_h if inp else 0,
-                krank_t=inp.krank_t if inp else 0,
+                krank_t=krank_t,
                 pattern=pat,
                 feiertage_sets=feiertage_sets,
                 eintritt=eintritt,
@@ -664,7 +674,11 @@ def get_ytd(
             monthly.append({
                 "umsatz": round(umsatz),
                 "zeg_b": zeg["zeg_b"],
-                "color": zeg_color(zeg["zeg_b"])
+                "color": zeg_color(zeg["zeg_b"]),
+                "soll_tage": zeg["soll_tage"],
+                "prod_b": zeg["prod_b"],
+                "ferien_t": ferien_t,
+                "krank_t": krank_t,
             })
             if zeg["zeg_b"]:
                 zeg_b_values.append(zeg["zeg_b"])
