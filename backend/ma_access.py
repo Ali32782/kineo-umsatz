@@ -12,6 +12,27 @@ CANONICAL_MA_TEAMS: dict[str, str] = {
     "Valerio.S": "Escher Wyss",
 }
 
+# CC-Team: welche Kennzahl gilt (Umsatz/ZEG vs. Mitglieder — Mitglieder-Import folgt separat)
+CC_KPI_TYPE: dict[str, str] = {
+    "Nina.S": "umsatz",
+    "Marc.W": "umsatz",
+    "Ilaria.F": "mitglieder",
+    "Susanne.K": "keine",
+    "Larissa.S": "keine",
+    "Pamela.P": "keine",
+}
+
+
+def cc_kpi_label(ma_name: str) -> str | None:
+    kind = CC_KPI_TYPE.get(ma_name)
+    if kind == "umsatz":
+        return "Umsatz / ZEG-B"
+    if kind == "mitglieder":
+        return "Mitgliederzahlen"
+    if kind == "keine":
+        return "kein Umsatz-KPI"
+    return None
+
 
 def normalize_team(team: str | None) -> str:
     return (team or "").strip()

@@ -18,7 +18,7 @@ from calc import (
 )
 from email_service import email_zeg_alarm, email_csv_reminder
 from auth import has_full_access
-from ma_access import filter_mas_for_user, months_for_period
+from ma_access import filter_mas_for_user, months_for_period, CC_KPI_TYPE, cc_kpi_label
 
 def _require_full_access(user: User) -> None:
     if not has_full_access(user.role):
@@ -1145,6 +1145,8 @@ def get_bilat_overview(year: int, period_label: str, db: Session = Depends(get_d
         "kat_b_fk": bilats[m.name].kat_b_fk if m.name in bilats else None,
         "kat_c_fk": bilats[m.name].kat_c_fk if m.name in bilats else None,
         "kat_d_fk": bilats[m.name].kat_d_fk if m.name in bilats else None,
+        "kpi_type": CC_KPI_TYPE.get(m.name),
+        "kpi_label": cc_kpi_label(m.name),
     } for m in mas]
 
 # ── Notifications ─────────────────────────────────────────────────────────

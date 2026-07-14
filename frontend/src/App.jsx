@@ -2164,9 +2164,21 @@ function BilatDataPage() {
           </div>
           {faktenOpen && faktenblatt && (
             <div style={{ padding: 18 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#004869", marginBottom: 12 }}>
-                {faktenblatt.performance_comment}
-              </div>
+              {faktenblatt.kpi_label && (
+                <div style={{ fontSize: 12, color: "#666", marginBottom: 8 }}>
+                  Kennzahl: <strong style={{ color: "#004869" }}>{faktenblatt.kpi_label}</strong>
+                </div>
+              )}
+              {faktenblatt.kpi_type === "mitglieder" ? (
+                <div style={{ background: "#F0F4F6", borderRadius: 8, padding: "12px 14px", marginBottom: 14, fontSize: 13, color: "#555" }}>
+                  Für diese Person gelten <strong>Mitgliederzahlen</strong>, kein Umsatz/ZEG.
+                  Mitglieder-Import in der App folgt — bis dahin Qualiziele & Gesprächspunkte nutzen.
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#004869", marginBottom: 12 }}>
+                  {faktenblatt.performance_comment}
+                </div>
+              )}
 
               {(faktenblatt.extended_rating_keys || []).length > 0 && (
                 <div style={{ background: "#FFF8E1", border: "1px solid #FFE082", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 12, color: "#6D4C00" }}>
@@ -2175,6 +2187,7 @@ function BilatDataPage() {
                 </div>
               )}
 
+              {faktenblatt.kpi_type !== "mitglieder" && faktenblatt.kpi_type !== "keine" && (
               <div style={{ overflowX: "auto", marginBottom: 18 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
@@ -2207,6 +2220,7 @@ function BilatDataPage() {
                   </tbody>
                 </table>
               </div>
+              )}
 
               {(faktenblatt.qual_goals || []).length > 0 && (
                 <div style={{ marginBottom: 18 }}>
@@ -2464,6 +2478,7 @@ function BilatDataPage() {
                   <div>
                     <div style={{fontSize:13,fontWeight:600}}>{ma.display_name}</div>
                     <div style={{fontSize:11,color:"#888",marginTop:2}}>
+                      {ma.kpi_label ? `${ma.kpi_label} · ` : ""}
                       {ma.flow_phase === "fk_prep" && "FK vorbereiten"}
                       {ma.flow_phase === "ma_self" && "Selbsteinschätzung offen"}
                       {ma.flow_phase === "reveal" && "Abgleich"}

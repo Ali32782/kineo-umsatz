@@ -30,10 +30,10 @@ MA_PATTERNS = {
     "Martino.C":  {"mo":0.20,"di":0.20,"mi":0.20,"do":0.20,"fr":0.20,"mgmt":20,"leit":0},
     "Meike.V":    {"mo":0.20,"di":0.20,"mi":0.20,"do":0.20,"fr":0.00,"mgmt":0,"leit":0},
     "Noah.S":     {"mo":0.20,"di":0.20,"mi":0.00,"do":0.00,"fr":0.20,"mgmt":0,"leit":0},
-    # CC mit Umsatzfaktor (Pensum vorerst 100% Mo–Fr — bei Bedarf im Admin/Arbeitsplan anpassen)
+    # CC mit Umsatz (Pensum vorerst 100% Mo–Fr — bei Bedarf im Admin/Arbeitsplan anpassen)
     "Nina.S":     {"mo":0.20,"di":0.20,"mi":0.20,"do":0.20,"fr":0.20,"mgmt":0,"leit":0},
     "Marc.W":     {"mo":0.20,"di":0.20,"mi":0.20,"do":0.20,"fr":0.20,"mgmt":0,"leit":0},
-    "Ilaria.F":   {"mo":0.20,"di":0.20,"mi":0.20,"do":0.20,"fr":0.20,"mgmt":0,"leit":0},
+    # Ilaria.F: CC mit Mitgliederzahlen (kein Umsatz/ZEG-Pattern)
     "Pablo.G":    {"mo":0.20,"di":0.20,"mi":0.20,"do":0.20,"fr":0.00,"mgmt":0,"leit":0},
     "Pablo.M":    {"mo":0.20,"di":0.20,"mi":0.20,"do":0.20,"fr":0.00,"mgmt":0,"leit":0},
     "Raphael.H":  {"mo":0.00,"di":0.20,"mi":0.20,"do":0.20,"fr":0.20,"mgmt":0,"leit":4},

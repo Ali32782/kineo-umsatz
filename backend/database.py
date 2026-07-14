@@ -363,13 +363,14 @@ def _seed_cc_team_pamela():
                 changed = True
 
         cc_mas = [
-            # name, display, role, bg_pct, has_umsatz (documented via pattern elsewhere)
-            ("Pamela.P", "Pamela Possamai", "teamlead", 1.0, "pamela"),
-            ("Nina.S", "Nina Schulte", "therapeut", 1.0, "pamela"),
-            ("Marc.W", "Marc Walser", "therapeut", 1.0, "pamela"),
-            ("Ilaria.F", "Ilaria Ferrante", "therapeut", 1.0, "pamela"),
-            ("Susanne.K", "Susanne K.", "therapeut", 1.0, "pamela"),
-            ("Larissa.S", "Larissa S.", "therapeut", 1.0, "pamela"),
+            # name, display, role, bg_pct
+            # KPI: Nina+Marc = Umsatz; Ilaria = Mitgliederzahlen; Susanne/Larissa = keines
+            ("Pamela.P", "Pamela Possamai", "teamlead", 1.0),
+            ("Nina.S", "Nina Schulte", "therapeut", 1.0),
+            ("Marc.W", "Marc Walser", "therapeut", 1.0),
+            ("Ilaria.F", "Ilaria Ferrante", "therapeut", 1.0),
+            ("Susanne.K", "Susanne K.", "therapeut", 1.0),
+            ("Larissa.S", "Larissa S.", "therapeut", 1.0),
         ]
         # Pamela herself reports to COO
         fk_for = {
@@ -380,7 +381,7 @@ def _seed_cc_team_pamela():
             "Susanne.K": "pamela",
             "Larissa.S": "pamela",
         }
-        for name, display, role, bg, _ in cc_mas:
+        for name, display, role, bg in cc_mas:
             ma = db.query(MAStammdaten).filter_by(name=name).first()
             if not ma:
                 db.add(MAStammdaten(

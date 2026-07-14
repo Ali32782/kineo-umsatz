@@ -503,6 +503,8 @@ def build_faktenblatt(
             "umsatz": round(pr["umsatz"] or 0),
         })
 
+    from ma_access import CC_KPI_TYPE, cc_kpi_label
+
     return {
         "ma_name": ma.name,
         "display_name": ma.display_name or ma.name,
@@ -521,6 +523,8 @@ def build_faktenblatt(
         "extended_rating_keys": [
             c["key"] for c in rating_cats if c["key"] not in ("a", "b", "c", "d")
         ],
+        "kpi_type": CC_KPI_TYPE.get(ma.name),
+        "kpi_label": cc_kpi_label(ma.name),
     }
 
 

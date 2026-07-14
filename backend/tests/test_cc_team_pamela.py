@@ -28,6 +28,14 @@ def test_seed_cc_team_pamela_creates_user_and_reports():
             assert mas[name].team == "CC"
         assert mas["Pamela.P"].fk_username == "sereina"
 
+        from ma_access import CC_KPI_TYPE
+        assert CC_KPI_TYPE["Nina.S"] == "umsatz"
+        assert CC_KPI_TYPE["Marc.W"] == "umsatz"
+        assert CC_KPI_TYPE["Ilaria.F"] == "mitglieder"
+        from calc import MA_PATTERNS
+        assert "Nina.S" in MA_PATTERNS and "Marc.W" in MA_PATTERNS
+        assert "Ilaria.F" not in MA_PATTERNS
+
         visible = filter_mas_for_user(
             db.query(MAStammdaten).all(), pamela, db, year=2026, months=list(range(1, 7)),
         )
