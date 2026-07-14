@@ -9,7 +9,7 @@ from database import SessionLocal, init_db, MAStammdaten, User, MaDocument
 from auth import hash_password
 from qual_goals import replace_qual_goals
 from qual_sign import sign_qual_goals
-from documents_store import absolute_path, list_documents_for_mas
+from documents_store import list_documents_for_mas
 from simple_pdf import build_text_pdf
 
 
@@ -60,9 +60,9 @@ def test_sign_qual_creates_pdf_in_ablage():
         assert doc is not None
         assert doc.doc_type == "qual_signed"
         assert doc.ma_name == "Noah.S"
-        path = absolute_path(doc)
-        assert path.is_file()
-        assert path.read_bytes().startswith(b"%PDF")
+        assert doc.content and bytes(doc.content).startswith(b"%PDF")
+        from documents_store import read_document_bytes
+        assert read_document_bytes(doc).startswith(b"%PDF")
         listed = list_documents_for_mas(db, ["Noah.S"])
         assert any(d.id == doc_id for d in listed)
     finally:

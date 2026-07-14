@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, LargeBinary
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -200,9 +200,10 @@ class MaDocument(Base):
     year = Column(Integer, nullable=True, index=True)
     period_label = Column(String, nullable=True, index=True)
     filename = Column(String, nullable=False)
-    relative_path = Column(String, nullable=False)  # relativ zu DATA_DIR/documents
+    relative_path = Column(String, nullable=False)  # optional Cache-Pfad; Inhalt primär in content
     mime_type = Column(String, nullable=True)
     size_bytes = Column(Integer, nullable=True)
+    content = Column(LargeBinary, nullable=True)  # persistent in Postgres Free (ohne Disk)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     created_by = Column(String, nullable=True)
@@ -254,6 +255,8 @@ def get_storage_info() -> dict:
         "backend": "postgresql",
         "persistent": True,
         "on_render": on_render,
+        "documents_in_db": True,
+        "note": "Quali-PDFs liegen in Postgres (Free ohne Disk).",
     }
 
 
@@ -481,10 +484,28 @@ def _migrate_bilat_flow_phase():
             conn.execute(text("UPDATE bilat_data SET flow_phase = 'done' WHERE flow_phase IS NULL AND kat_a_fk IS NOT NULL AND kat_a_self IS NOT NULL"))
 
 
+def _migrate_ma_documents_content():
+    """BYTEA/BLOB für Ablage-Dateien — Free-Tier ohne Persistent Disk."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if not inspector.has_table("ma_documents"):
+        return
+    cols = {c["name"] for c in inspector.get_columns("ma_documents")}
+    if "content" in cols:
+        return
+    with engine.begin() as conn:
+        if IS_SQLITE:
+            conn.execute(text("ALTER TABLE ma_documents ADD COLUMN content BLOB"))
+        else:
+            conn.execute(text("ALTER TABLE ma_documents ADD COLUMN content BYTEA"))
+
+
 def migrate_schema():
     """Lightweight schema migrations (Spalten/Tabellen) — ohne Stammdaten zu überschreiben."""
     _migrate_bilat_flow_phase()
     _migrate_ma_fk_columns()
+    _migrate_ma_documents_content()
     if not IS_SQLITE:
         migrate_legacy_schedule_sets()
         _backfill_user_emails()

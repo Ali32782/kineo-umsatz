@@ -1371,7 +1371,8 @@ def download_document(
     doc_id: int,
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
-    from documents_store import absolute_path
+    from documents_store import read_document_bytes
+    from fastapi.responses import Response
 
     doc = db.query(MaDocument).filter_by(id=doc_id).first()
     if not doc:
@@ -1381,13 +1382,15 @@ def download_document(
         raise HTTPException(status_code=404, detail="MA nicht gefunden")
     y = doc.year or datetime.utcnow().year
     _require_qual_goal_access(ma, current_user, db, y, doc.period_label or f"HJ1 {y}")
-    path = absolute_path(doc)
-    if not path.is_file():
+    payload = read_document_bytes(doc)
+    if not payload:
         raise HTTPException(status_code=404, detail="Datei fehlt auf dem Server")
-    return FileResponse(
-        path,
+    return Response(
+        content=payload,
         media_type=doc.mime_type or "application/octet-stream",
-        filename=doc.filename,
+        headers={
+            "Content-Disposition": f'attachment; filename="{doc.filename}"',
+        },
     )
 
 

@@ -1,4 +1,8 @@
-"""Dokumenten-Ablage: unterzeichnete Quali-PDFs und Uploads pro MA."""
+"""Dokumenten-Ablage: unterzeichnete Quali-PDFs und Uploads pro MA.
+
+Inhalt wird in der DB gespeichert (Postgres Free bleibt persistent ohne Disk).
+Optional zusätzlich auf Disk gecacht, falls DATA_DIR beschreibbar ist.
+"""
 from __future__ import annotations
 
 import json
@@ -14,15 +18,31 @@ from database import DATA_DIR, MaDocument, QualSignature
 DOCUMENTS_ROOT = Path(DATA_DIR) / "documents"
 
 
-def _safe_ma_dir(ma_name: str) -> Path:
+def _safe_ma_dir(ma_name: str) -> Path | None:
+    """Versucht lokalen Cache-Ordner; bei Read-only/ephemeral Fehler → None."""
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", ma_name or "unknown").strip("._") or "unknown"
     path = DOCUMENTS_ROOT / safe
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    except OSError:
+        return None
 
 
 def absolute_path(doc: MaDocument) -> Path:
-    return DOCUMENTS_ROOT / doc.relative_path
+    return DOCUMENTS_ROOT / (doc.relative_path or "")
+
+
+def read_document_bytes(doc: MaDocument) -> bytes | None:
+    if doc.content:
+        return bytes(doc.content)
+    path = absolute_path(doc)
+    try:
+        if path.is_file():
+            return path.read_bytes()
+    except OSError:
+        pass
+    return None
 
 
 def document_as_dict(doc: MaDocument) -> dict:
@@ -37,6 +57,7 @@ def document_as_dict(doc: MaDocument) -> dict:
         "mime_type": doc.mime_type,
         "size_bytes": doc.size_bytes,
         "notes": doc.notes,
+        "storage": "db" if doc.content else "file",
         "created_at": doc.created_at.isoformat() if doc.created_at else None,
         "created_by": doc.created_by,
     }
@@ -92,14 +113,19 @@ def save_bytes_document(
     period_label: str | None = None,
     notes: str | None = None,
 ) -> MaDocument:
-    ma_dir = _safe_ma_dir(ma_name)
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     unique = uuid.uuid4().hex[:8]
     stored_name = f"{stamp}_{unique}_{filename}"
-    rel = f"{ma_dir.name}/{stored_name}"
-    abs_path = DOCUMENTS_ROOT / rel
-    abs_path.parent.mkdir(parents=True, exist_ok=True)
-    abs_path.write_bytes(content)
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", ma_name or "unknown").strip("._") or "unknown"
+    rel = f"{safe}/{stored_name}"
+
+    # Optionaler Disk-Cache (Free ohne Disk: wird übersprungen)
+    ma_dir = _safe_ma_dir(ma_name)
+    if ma_dir is not None:
+        try:
+            (ma_dir / stored_name).write_bytes(content)
+        except OSError:
+            pass
 
     doc = MaDocument(
         ma_name=ma_name,
@@ -111,6 +137,7 @@ def save_bytes_document(
         relative_path=rel,
         mime_type=mime_type,
         size_bytes=len(content),
+        content=content,
         notes=notes,
         created_at=datetime.utcnow(),
         created_by=created_by,
@@ -139,7 +166,6 @@ def delete_document(db: Session, doc: MaDocument) -> None:
             path.unlink()
     except OSError:
         pass
-    # unlink signature reference
     for sig in db.query(QualSignature).filter_by(document_id=doc.id).all():
         sig.document_id = None
     db.delete(doc)
