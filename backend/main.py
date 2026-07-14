@@ -44,7 +44,7 @@ CORS_ORIGINS = list(dict.fromkeys([
     *_cors_extra,
 ]))
 
-app = FastAPI(title="Kineo Umsatzanalyse", version="1.0.1")
+app = FastAPI(title="Kineo Umsatzanalyse", version="1.0.3")
 
 # WICHTIG: allow_credentials=False — sonst blockiert der Browser bei ACAO "*".
 app.add_middleware(
@@ -2068,7 +2068,8 @@ def health():
     return {
         "status": "ok",
         "app": "Kineo Umsatzanalyse",
-        "version": "1.0.2",
+        "version": "1.0.3",
         "cors": "no-credentials",
+        "auth": "bearer-or-query-token",
         "storage": storage,
     }

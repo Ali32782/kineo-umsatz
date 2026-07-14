@@ -1436,9 +1436,13 @@ function ExportsPage() {
     setLoading(l => ({...l,[key]:true}))
     try {
       const token = localStorage.getItem("token")
+      if (!token) {
+        alert("Nicht angemeldet — bitte neu einloggen, dann erneut herunterladen.")
+        return
+      }
       const sep = url.includes("?") ? "&" : "?"
       const a = document.createElement("a")
-      a.href = `${API}${url}${sep}token=${encodeURIComponent(token || "")}`
+      a.href = `${API}${url}${sep}token=${encodeURIComponent(token)}`
       a.rel = "noopener"
       document.body.appendChild(a)
       a.click()
@@ -2184,8 +2188,12 @@ function QualGoalsPage() {
   const downloadSignedPdf = async (docId) => {
     try {
       const token = localStorage.getItem("token")
+      if (!token) {
+        setMsg({ type: "err", text: "Nicht angemeldet — bitte neu einloggen." })
+        return
+      }
       const a = document.createElement("a")
-      a.href = `${API}/api/documents/${docId}/download?token=${encodeURIComponent(token || "")}`
+      a.href = `${API}/api/documents/${docId}/download?token=${encodeURIComponent(token)}`
       a.rel = "noopener"
       document.body.appendChild(a)
       a.click()
@@ -2424,8 +2432,12 @@ function DocumentsPage() {
   const download = async (doc) => {
     try {
       const token = localStorage.getItem("token")
+      if (!token) {
+        setMsg({ type: "err", text: "Nicht angemeldet — bitte neu einloggen." })
+        return
+      }
       const a = document.createElement("a")
-      a.href = `${API}/api/documents/${doc.id}/download?token=${encodeURIComponent(token || "")}`
+      a.href = `${API}/api/documents/${doc.id}/download?token=${encodeURIComponent(token)}`
       a.rel = "noopener"
       document.body.appendChild(a)
       a.click()
@@ -2798,10 +2810,14 @@ function BilatDataPage() {
     setWordLoading(true)
     try {
       const token = localStorage.getItem("token")
+      if (!token) {
+        setMsg({ type: "err", text: "Nicht angemeldet — bitte neu einloggen." })
+        return
+      }
       const month = faktenblatt.through_month
       // Navigation statt fetch → kein CORS-Problem (token in Query nur für Download)
       const url = `${API}/api/export/bilat-single/${year}/${month}/${encodeURIComponent(selected.name)}`
-        + `?period_label=${encodeURIComponent(period)}&token=${encodeURIComponent(token || "")}`
+        + `?period_label=${encodeURIComponent(period)}&token=${encodeURIComponent(token)}`
       const a = document.createElement("a")
       a.href = url
       a.rel = "noopener"
