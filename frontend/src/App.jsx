@@ -678,6 +678,8 @@ function UploadPage() {
   const [abFile, setAbFile] = useState(null)
   const [abPreview, setAbPreview] = useState(null)
   const [mitgliederFile, setMitgliederFile] = useState(null)
+  const [fitnessFile, setFitnessFile] = useState(null)
+  const [runnerslabFile, setRunnerslabFile] = useState(null)
   const [mitgliederCount, setMitgliederCount] = useState("")
   const [importedMAs, setImportedMAs] = useState(() => new Set())
   const [maList, setMaList] = useState([])
@@ -775,6 +777,42 @@ function UploadPage() {
     const data = await res.json().catch(() => ({}))
     if (res.ok) setMsg({ type: "ok", text: data.message || "Mitglieder importiert" })
     else setMsg({ type: "err", text: data.detail || "Import fehlgeschlagen" })
+    setSaving(false)
+  }
+
+  const uploadFitnessExcel = async () => {
+    if (!fitnessFile) return
+    setSaving(true); setMsg(null)
+    const fd = new FormData()
+    fd.append("file", fitnessFile)
+    fd.append("ma_name", "Ilaria.F")
+    const token = localStorage.getItem("token")
+    const res = await fetch(`${API}/api/mitglieder/upload-excel`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd,
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      setMsg({ type: "ok", text: data.message || "Fitness-Abo importiert" })
+      setStatusKey(k => k + 1)
+    } else setMsg({ type: "err", text: data.detail || "Fitness-Import fehlgeschlagen" })
+    setSaving(false)
+  }
+
+  const uploadRunnerslabExcel = async () => {
+    if (!runnerslabFile) return
+    setSaving(true); setMsg(null)
+    const fd = new FormData()
+    fd.append("file", runnerslabFile)
+    fd.append("ma_name", "Marc.W")
+    const token = localStorage.getItem("token")
+    const res = await fetch(`${API}/api/upload-runnerslab`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd,
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      setMsg({ type: "ok", text: data.message || "Runnerslab importiert" })
+      setStatusKey(k => k + 1)
+    } else setMsg({ type: "err", text: data.detail || "Runnerslab-Import fehlgeschlagen" })
     setSaving(false)
   }
 
@@ -917,8 +955,15 @@ function UploadPage() {
           <div style={{ marginTop: 28, paddingTop: 24, borderTop: "1px solid #EEE" }}>
             <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", color: "#004869" }}>Mitgliederzahlen (Ilaria / CC)</h3>
             <p style={{ margin: "0 0 14px", fontSize: 12, color: "#666" }}>
-              CSV mit Spalten <em>month,count</em> (optional ma_name) — oder manuell für den Monat oben.
+              Fitness-Abo Excel (KW → Monat, letzter KW-Wert) oder CSV <em>month,count</em> — oder manuell für den Monat oben.
             </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", marginBottom: 12 }}>
+              <input type="file" accept=".xlsx,.xlsm" onChange={e => setFitnessFile(e.target.files?.[0] || null)} />
+              <button type="button" onClick={uploadFitnessExcel} disabled={saving || !fitnessFile}
+                style={{ background: "#004869", color: "white", border: "none", padding: "8px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
+                Fitness-Excel importieren
+              </button>
+            </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", marginBottom: 12 }}>
               <input type="file" accept=".csv,.txt" onChange={e => setMitgliederFile(e.target.files?.[0] || null)} />
               <button type="button" onClick={uploadMitgliederCsv} disabled={saving || !mitgliederFile}
@@ -933,6 +978,20 @@ function UploadPage() {
               <button type="button" onClick={saveMitgliederManual} disabled={saving}
                 style={{ background: "white", color: "#004869", border: "1px solid #004869", padding: "8px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
                 Speichern
+              </button>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 28, paddingTop: 24, borderTop: "1px solid #EEE" }}>
+            <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", color: "#004869" }}>Runnerslab Umsätze (Marc / CC)</h3>
+            <p style={{ margin: "0 0 14px", fontSize: 12, color: "#666" }}>
+              Excel „Statistik Umsätze Runnerslab“ — Zeile Total je Monat wird für Marc.W gespeichert.
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+              <input type="file" accept=".xlsx,.xlsm" onChange={e => setRunnerslabFile(e.target.files?.[0] || null)} />
+              <button type="button" onClick={uploadRunnerslabExcel} disabled={saving || !runnerslabFile}
+                style={{ background: "#004869", color: "white", border: "none", padding: "8px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
+                Runnerslab-Excel importieren
               </button>
             </div>
           </div>

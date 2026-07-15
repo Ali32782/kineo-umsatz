@@ -488,6 +488,104 @@ async def upload_mitglieder_csv(
         saved.append(mitglieder_as_dict(row))
     return {"message": f"{len(saved)} Monate importiert", "items": saved}
 
+
+@app.post("/api/mitglieder/upload-excel")
+async def upload_mitglieder_excel(
+    file: UploadFile = File(...),
+    ma_name: str = Form("Ilaria.F"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Fitness-Abo Excel (KW → Monat, letzter KW-Wert) für Ilaria / CC."""
+    _require_full_access(current_user)
+    from fitness_abo_import import parse_fitness_abo_excel
+    from mitglieder import upsert_mitglieder, mitglieder_as_dict
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Leere Datei")
+    try:
+        parsed = parse_fitness_abo_excel(content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Excel konnte nicht gelesen werden: {e}") from e
+    if not parsed:
+        raise HTTPException(status_code=400, detail="Keine Mitglieder-Gesamt-Werte in der Excel gefunden")
+
+    saved = []
+    years = sorted({p["year"] for p in parsed})
+    for p in parsed:
+        row = upsert_mitglieder(
+            db,
+            ma_name=ma_name,
+            year=p["year"],
+            month=p["month"],
+            count=p["count"],
+            notes="Fitness-Abo Excel",
+            updated_by=current_user.username,
+        )
+        saved.append(mitglieder_as_dict(row))
+    return {
+        "message": f"{len(saved)} Monate für {ma_name} importiert ({', '.join(str(y) for y in years)})",
+        "items": saved,
+        "years": years,
+    }
+
+
+@app.post("/api/upload-runnerslab")
+async def upload_runnerslab(
+    file: UploadFile = File(...),
+    ma_name: str = Form("Marc.W"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Runnerslab Umsatz-Excel → UmsatzData für Marc (Total je Monat)."""
+    _require_full_access(current_user)
+    from runnerslab_import import parse_runnerslab_excel
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Leere Datei")
+    try:
+        parsed = parse_runnerslab_excel(content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Excel konnte nicht gelesen werden: {e}") from e
+    if not parsed:
+        raise HTTPException(status_code=400, detail="Keine Total-Umsätze in der Excel gefunden")
+
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+    if not ma:
+        raise HTTPException(status_code=400, detail=f"MA {ma_name} nicht in Stammdaten")
+
+    saved = []
+    for p in parsed:
+        row = (
+            db.query(UmsatzData)
+            .filter_by(ma_name=ma_name, year=p["year"], month=p["month"])
+            .first()
+        )
+        if row:
+            row.umsatz = p["umsatz"]
+            row.uploaded_by = current_user.username
+            row.uploaded_at = datetime.utcnow()
+        else:
+            row = UmsatzData(
+                ma_name=ma_name,
+                year=p["year"],
+                month=p["month"],
+                umsatz=p["umsatz"],
+                uploaded_by=current_user.username,
+            )
+            db.add(row)
+        saved.append({"ma_name": ma_name, "year": p["year"], "month": p["month"], "umsatz": p["umsatz"]})
+    db.commit()
+    years = sorted({p["year"] for p in parsed})
+    return {
+        "message": f"{len(saved)} Monate Umsatz für {ma_name} importiert ({', '.join(str(y) for y in years)})",
+        "items": saved,
+        "years": years,
+        "total": round(sum(p["umsatz"] for p in parsed), 2),
+    }
+
 # ── Abwesenheiten Excel Upload ────────────────────────────────────────────
 @app.post("/api/upload-abwesenheiten")
 async def upload_abwesenheiten(
