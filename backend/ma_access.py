@@ -22,8 +22,8 @@ CC_KPI_TYPE: dict[str, str] = {
     "Pamela.P": "keine",
 }
 
-# ZEG-B-Jahresübersicht: ohne Selbstzahler-Verantwortliche
-ZEG_OVERVIEW_EXCLUDED = frozenset({"Marc.W", "Nina.S", "Ilaria.F"})
+# ZEG-B-Jahresübersicht: gesamtes CC-Team raus
+ZEG_OVERVIEW_EXCLUDED = frozenset(CC_KPI_TYPE.keys())
 
 
 def cc_kpi_label(ma_name: str) -> str | None:
@@ -37,7 +37,10 @@ def cc_kpi_label(ma_name: str) -> str | None:
     return None
 
 
-def is_zeg_overview_excluded(ma_name: str) -> bool:
+def is_zeg_overview_excluded(ma_name: str, team: str | None = None) -> bool:
+    """CC-Team erscheint nicht in der ZEG-B-Jahresübersicht."""
+    if (team or "").strip() == "CC":
+        return True
     return ma_name in ZEG_OVERVIEW_EXCLUDED
 
 

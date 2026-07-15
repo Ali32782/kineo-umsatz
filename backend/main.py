@@ -905,8 +905,8 @@ def get_ytd(
         year=year,
         months=list(range(1, through_month + 1)) if through_month else None,
     )
-    # ZEG-B-Jahresübersicht: ohne Fitness/HYROX/Runnerslab/Performance Lab
-    mas = [m for m in mas if not is_zeg_overview_excluded(m.name)]
+    # ZEG-B-Jahresübersicht: ohne CC-Team
+    mas = [m for m in mas if not is_zeg_overview_excluded(m.name, m.team)]
     fk_names = {m.fk_username for m in mas if m.fk_username}
     fk_users = {}
     if fk_names:
