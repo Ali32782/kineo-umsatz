@@ -943,6 +943,44 @@ def _seed_hj2_2026_qual_goals():
         db.close()
 
 
+def _rename_office_to_management():
+    """Office und Management sind dasselbe — Stammdaten + Schedule auf Management."""
+    from sqlalchemy import text
+
+    db = SessionLocal()
+    try:
+        changed = False
+        for ma in db.query(MAStammdaten).filter(MAStammdaten.team == "Office").all():
+            ma.team = "Management"
+            changed = True
+        for u in db.query(User).filter(User.team == "Office").all():
+            u.team = "Management"
+            changed = True
+        if changed:
+            db.commit()
+    finally:
+        db.close()
+
+    # Schedule-Standort-Spalten (falls vorhanden)
+    try:
+        with engine.begin() as conn:
+            for col in ("vm_standort", "nm_standort"):
+                try:
+                    conn.execute(text(
+                        f"UPDATE ma_schedule SET {col} = 'Management' WHERE {col} = 'Office'"
+                    ))
+                except Exception:
+                    pass
+                try:
+                    conn.execute(text(
+                        f"UPDATE ma_schedule_entries SET {col} = 'Management' WHERE {col} = 'Office'"
+                    ))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     migrate_schema()
@@ -960,6 +998,7 @@ def init_db():
     run_migration_once("hj1_2026_qual_eval_v1", _seed_hj1_2026_qual_eval)
     run_migration_once("anne_trinkl_v1", _seed_anne_trinkl)
     run_migration_once("hj2_2026_qual_goals_v2", _seed_hj2_2026_qual_goals)
+    run_migration_once("office_to_management_v1", _rename_office_to_management)
     _backfill_sereina_coo()
     # Idempotent: FK Pam → Sereina bei jedem Start absichern
     _fix_pamela_fk_sereina()

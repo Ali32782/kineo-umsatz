@@ -112,7 +112,7 @@ def standorte_from_entries(entries) -> list[str]:
             if not s:
                 continue
             s = normalize_standort(str(s).strip())
-            if s and s != "Office":
+            if s and s not in ("Office", "Management"):
                 found.add(s)
     return sorted(found)
 

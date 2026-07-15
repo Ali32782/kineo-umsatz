@@ -1,4 +1,4 @@
-"""Standort-Aufteilung inkl. Office, Umsatz und ZEG-B pro Standort."""
+"""Standort-Aufteilung inkl. Management (ex-Office), Umsatz und ZEG-B pro Standort."""
 from __future__ import annotations
 
 from calc import (
@@ -6,8 +6,16 @@ from calc import (
     _collect_schedule_weights,
     get_standort_fte_weights,
     get_standort_splits,
+    is_non_clinical_standort,
     zeg_color,
 )
+
+# Kein Umsatz-FTE / keine Mitarbeiter-Zählung im Dashboard
+NON_REVENUE_TEAMS = frozenset({"Management", "Office", "CC"})
+
+
+def is_revenue_team(team: str | None) -> bool:
+    return bool(team) and team not in NON_REVENUE_TEAMS
 
 
 def expand_ma_standort_rows(
@@ -18,12 +26,15 @@ def expand_ma_standort_rows(
 ) -> list[dict]:
     """
     Zerlegt eine MA-Zeile in Standort-Zeilen mit eigenem Umsatz, FTE und ZEG-B.
-  Office erhält FTE aber keinen Umsatz.
+    Management (ehem. Office) erhält FTE aber keinen Umsatz.
     """
     umsatz = ma_row.get("umsatz") or 0
     prod_b = ma_row.get("prod_b") or 0
     clinical_weights = _collect_schedule_weights(schedule_entries, include_office=False)
-    office_weight = _collect_schedule_weights(schedule_entries, include_office=True).get("Office", 0)
+    office_weight = sum(
+        v for k, v in _collect_schedule_weights(schedule_entries, include_office=True).items()
+        if is_non_clinical_standort(k)
+    )
 
     fte_weights = get_standort_fte_weights(ma_row["name"], primary_team, ma_bg, schedule_entries)
     umsatz_splits = get_standort_splits(ma_row["name"], primary_team, schedule_entries)
@@ -34,10 +45,10 @@ def expand_ma_standort_rows(
         if not clinical_weights:
             clinical_weights = {primary_team: ma_bg}
 
-    total_clinical = sum(clinical_weights.values()) or sum(fte_weights.values()) or ma_bg
-
     rows: list[dict] = []
     for standort, fte in fte_weights.items():
+        if is_non_clinical_standort(standort):
+            continue
         split = umsatz_splits.get(standort, 0)
         umsatz_s = round(umsatz * split, 2)
         # prod_b mit gleichem Anteil wie Umsatz — sonst ZEG-B verfälscht (z. B. 500 %+)
@@ -57,12 +68,13 @@ def expand_ma_standort_rows(
             "zeg_b": zeg_b_s,
             "color": zeg_color(zeg_b_s),
             "is_office": False,
+            "counts_for_fte": is_revenue_team(standort) and is_revenue_team(primary_team),
         })
 
     if office_weight > 0:
         rows.append({
             **ma_row,
-            "team": "Office",
+            "team": "Management",
             "umsatz": 0,
             "bg_pct": round(office_weight, 2),
             "standort_pct": round(office_weight / ma_bg * 100) if ma_bg else 0,
@@ -71,15 +83,18 @@ def expand_ma_standort_rows(
             "zeg_b": None,
             "color": "gray",
             "is_office": True,
+            "counts_for_fte": False,
         })
 
     return rows
 
 
-def aggregate_team_summary(expanded_rows: list[dict]) -> dict:
+def aggregate_team_summary(expanded_rows: list[dict], *, revenue_only: bool = False) -> dict:
     teams: dict = {}
     for r in expanded_rows:
         t = r["team"]
+        if revenue_only and not is_revenue_team(t):
+            continue
         if t not in teams:
             teams[t] = {"umsatz": 0, "zeg_b_weighted": 0, "prod_b_sum": 0, "fte": 0, "count": 0}
         teams[t]["umsatz"] += r.get("umsatz") or 0
@@ -99,6 +114,21 @@ def aggregate_team_summary(expanded_rows: list[dict]) -> dict:
             "fte": round(v["fte"], 2),
             "zeg_b_avg": avg,
             "color": zeg_color(avg),
-            "is_office": t == "Office",
+            "is_office": is_non_clinical_standort(t),
+            "counts_for_fte": is_revenue_team(t),
         }
     return summary
+
+
+def revenue_fte_total(expanded_rows: list[dict]) -> float:
+    """FTE nur Umsatz-Standorte / ohne Management & CC."""
+    total = 0.0
+    for r in expanded_rows:
+        if r.get("counts_for_fte") is False:
+            continue
+        if not is_revenue_team(r.get("team")):
+            continue
+        if not is_revenue_team(r.get("primary_team") or r.get("team")):
+            continue
+        total += r.get("bg_pct") or 0
+    return round(total, 1)

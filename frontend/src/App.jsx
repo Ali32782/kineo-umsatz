@@ -629,18 +629,17 @@ function DashboardPage() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 20, marginBottom: 28 }}>
         {teams.map(([team, stats]) => {
           const teamMAs = (data.ma_data||[]).filter(m => m.team === team)
-          const isOffice = stats.is_office || team === "Office"
           const c = ZEG_COLORS[stats.color || "gray"]
           return (
-            <div key={team} style={{ background: "white", borderRadius: 8, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", opacity: isOffice ? 0.92 : 1 }}>
-              <div style={{ background: isOffice ? "#F5F5F5" : c.bg, borderBottom: `3px solid ${isOffice ? "#999" : c.border}`, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div key={team} style={{ background: "white", borderRadius: 8, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <div style={{ background: c.bg, borderBottom: `3px solid ${c.border}`, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 16, fontFamily: "'Roboto Condensed', sans-serif", letterSpacing: "0.05em", color: "#1a1a1a" }}>{team}</div>
                   <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
-                    {isOffice ? `FTE ${(stats.fte||0).toFixed(1)} · kein Umsatz` : `CHF ${(stats.umsatz||0).toLocaleString("de-CH")}`}
+                    CHF {(stats.umsatz||0).toLocaleString("de-CH")}
                   </div>
                 </div>
-                {!isOffice && <ZEGBadge value={stats.zeg_b_avg} color={stats.color} size="lg" />}
+                <ZEGBadge value={stats.zeg_b_avg} color={stats.color} size="lg" />
               </div>
               <div style={{ padding: "12px 20px" }}>
                 {/* FTE Total */}
@@ -657,9 +656,7 @@ function DashboardPage() {
                       <span style={{ fontSize: 11, fontWeight: 700, color: "#888", minWidth: 30 }}>{(ma.bg_pct*100).toFixed(0)}%</span>
                       <span style={{ fontSize: 12, color: "#333" }}>{ma.display_name}</span>
                     </div>
-                    {ma.is_office
-                      ? <span style={{ fontSize: 10, color: "#999" }}>Office</span>
-                      : <ZEGBadge value={ma.zeg_b} color={ma.color} />}
+                    <ZEGBadge value={ma.zeg_b} color={ma.color} />
                   </div>
                 ))}
               </div>
@@ -1603,7 +1600,7 @@ function ExportsPage() {
 
 
 // ── Admin Page ─────────────────────────────────────────────────────────────
-const STANDORTE = ["Seefeld","Wipkingen","Thalwil","Escher Wyss","Stauffacher","Zollikon","CC","Office"]
+const STANDORTE = ["Seefeld","Wipkingen","Thalwil","Escher Wyss","Stauffacher","Zollikon","CC","Management"]
 const ROLLEN = ["therapeut","teamlead","sl","bd","management"]
 const DAYS_DE = ["Mo","Di","Mi","Do","Fr"]
 
@@ -1777,7 +1774,7 @@ function AdminPage() {
                 {fkSelect(newMA.fk_username, v => setNewMA({ ...newMA, fk_username: v }))}</div>
                 <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:4}}>Hauptstandort</div>
                 <select style={inp({width:"100%",boxSizing:"border-box"})} value={newMA.team} onChange={e=>setNewMA({...newMA,team:e.target.value})}>
-                  {STANDORTE.filter(s=>s!=="Office").map(s=><option key={s}>{s}</option>)}</select></div>
+                  {STANDORTE.filter(s => s !== "Management" && s !== "CC").map(s=><option key={s}>{s}</option>)}</select></div>
                 <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:4}}>Rolle</div>
                 <select style={inp({width:"100%",boxSizing:"border-box"})} value={newMA.role} onChange={e=>setNewMA({...newMA,role:e.target.value})}>
                   {ROLLEN.map(r => <option key={r} value={r}>{formatRoleLabel(r)}</option>)}</select></div>
@@ -1801,7 +1798,7 @@ function AdminPage() {
               {mas.map((ma,i) => editMA?.name===ma.name ? (
                 <tr key={ma.name} style={{background:"#F0F8F0"}}>
                   <td style={{padding:"8px 12px",fontWeight:700}}>{ma.name}</td>
-                  {[["display_name",180],["fk_username",null],["role",null,ROLLEN],["team",null,STANDORTE.filter(s=>s!=="Office")],["bg_pct",60],["eintritt",120],["austritt",120]].map(([k,w,opts])=>(
+                  {[["display_name",180],["fk_username",null],["role",null,ROLLEN],["team",null,STANDORTE],["bg_pct",60],["eintritt",120],["austritt",120]].map(([k,w,opts])=>(
                     <td key={k} style={{padding:"4px 8px"}}>
                       {k === "fk_username" ? fkSelect(editMA.fk_username, v => setEditMA({ ...editMA, fk_username: v }))
                       : opts ? <select style={inp()} value={editMA[k]||""} onChange={e=>setEditMA({...editMA,[k]:e.target.value})}>

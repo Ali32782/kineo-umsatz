@@ -816,8 +816,8 @@ def get_dashboard(
         from schedule_utils import get_schedule_entries_for_month
         schedule_map[ma.name] = get_schedule_entries_for_month(ma.name, year, month, db)
 
-    # Build multi-standort ma_data entries (ZEG-B + Umsatz pro Standort, inkl. Office)
-    from standort_calc import expand_ma_standort_rows, aggregate_team_summary
+    # Build multi-standort ma_data entries (ZEG-B + Umsatz pro Standort)
+    from standort_calc import expand_ma_standort_rows, aggregate_team_summary, revenue_fte_total
 
     ma_data_expanded = []
     for r in results:
@@ -825,18 +825,25 @@ def get_dashboard(
         ma_bg = r.get("bg_pct") or next((m.bg_pct for m in mas if m.name == r["name"]), 1.0)
         ma_data_expanded.extend(expand_ma_standort_rows(r, ma_bg, r["team"], schedule))
 
-    team_summary = aggregate_team_summary(ma_data_expanded)
-
-    total_fte_all = round(sum(r["bg_pct"] for r in ma_data_expanded), 1)
+    # FTE/Mitarbeiter-Karten: nur Umsatz-Standorte (ohne Management & CC)
+    team_summary = aggregate_team_summary(ma_data_expanded, revenue_only=True)
+    total_fte_all = revenue_fte_total(ma_data_expanded)
     from umsatz_agg import sum_umsatz_for_month
     umsatz_map_all = {(r.ma_name, r.month): r.umsatz for r in umsatz_rows}
     total_umsatz = round(sum_umsatz_for_month(umsatz_map_all, mas, month))
+
+    # Anzeige-Daten: Management/CC-Zeilen nicht in den Standort-Karten
+    ma_data_revenue = [
+        r for r in ma_data_expanded
+        if r.get("counts_for_fte") is not False
+        and r.get("team") in team_summary
+    ]
 
     return {
         "year": year,
         "month": month,
         "month_name": MONTH_NAMES_DE[month],
-        "ma_data": ma_data_expanded,
+        "ma_data": ma_data_revenue,
         "team_summary": team_summary,
         "total_umsatz": total_umsatz,
         "team_umsatz_sum": round(sum(v["umsatz"] for v in team_summary.values())),

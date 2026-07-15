@@ -38,8 +38,9 @@ WEEKDAY_KEYS = ["mo", "di", "mi", "do", "fr"]
 STANDORT_ALIASES = {
     "stauf.": "Stauffacher",
     "stauffacher": "Stauffacher",
-    "off.": "Office",
-    "office": "Office",
+    "off.": "Management",
+    "office": "Management",
+    "management": "Management",
     "wipkingen": "Wipkingen",
     "thalwil": "Thalwil",
     "escher wyss": "Escher Wyss",

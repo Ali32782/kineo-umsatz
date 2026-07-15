@@ -80,14 +80,19 @@ def schedule_needs_reseed(entries) -> bool:
         return True
     return any((e.vm_pct or 0) >= 0.15 or (e.nm_pct or 0) >= 0.15 for e in entries)
 
+def is_non_clinical_standort(standort: str | None) -> bool:
+    """Management (= ehem. Office): kein Umsatzanteil im Plan."""
+    return (standort or "").strip() in ("Office", "Management")
+
+
 def _collect_schedule_weights(schedule_entries, include_office: bool = False) -> dict[str, float]:
     weights: dict[str, float] = {}
     if not schedule_entries:
         return weights
     for e in schedule_entries:
-        if e.vm_pct and e.vm_standort and (include_office or e.vm_standort != "Office"):
+        if e.vm_pct and e.vm_standort and (include_office or not is_non_clinical_standort(e.vm_standort)):
             weights[e.vm_standort] = weights.get(e.vm_standort, 0) + e.vm_pct
-        if e.nm_pct and e.nm_standort and (include_office or e.nm_standort != "Office"):
+        if e.nm_pct and e.nm_standort and (include_office or not is_non_clinical_standort(e.nm_standort)):
             weights[e.nm_standort] = weights.get(e.nm_standort, 0) + e.nm_pct
     return weights
 

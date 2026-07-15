@@ -54,4 +54,4 @@ def test_parse_full_day():
 
 def test_normalize_aliases():
     assert normalize_standort("Stauf.") == "Stauffacher"
-    assert normalize_standort("Off.") == "Office"
+    assert normalize_standort("Off.") == "Management"
