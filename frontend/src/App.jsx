@@ -314,10 +314,14 @@ function Layout({ children, page, setPage }) {
     { id: "bilats", label: "Bilaterals" },
     { id: "qualziele", label: "Quali-Themen" },
     { id: "ablage", label: "Ablage" },
-    { id: "lohnrechner", label: "Lohnrechner", roles: FULL_ACCESS_ROLES },
+    { id: "lohnrechner", label: "Lohnrechner", usernames: ["ali"] },
     { id: "profil", label: "Profil" },
     { id: "admin", label: "Admin", roles: FULL_ACCESS_ROLES },
-  ].filter(n => !n.roles || n.roles.includes(auth.user?.role))
+  ].filter(n => {
+    if (n.usernames) return n.usernames.includes(auth.user?.username)
+    if (n.roles) return n.roles.includes(auth.user?.role)
+    return true
+  })
 
   const sidebar = (
     <div style={{
@@ -2138,6 +2142,34 @@ const KAT_KEYS_ALL = ["a", "b", "c", "d", "e", "f"]
 
 const QUAL_STATUSES = ["offen", "läuft", "gut", "stabil", "erledigt", "kritisch"]
 
+/** Gesprächsfragen für den Abgleich — immer anzeigen, auch wenn E/F noch leer. */
+const TALK_PROMPTS = {
+  a: [
+    "Was hat die Auslastung / den Umsatz im Halbjahr am stärksten beeinflusst?",
+    "Welche 1–2 Massnahmen würden die nächste Periode spürbar verbessern?",
+  ],
+  b: [
+    "Wo steht die Qualität der Arbeit heute — und was soll sich verbessern?",
+    "Welche Quali-Ziele sind kritisch, welche auf Kurs?",
+  ],
+  c: [
+    "Wie läuft die Zusammenarbeit im Team / mit der Führung?",
+    "Was braucht die Person, um sich im Team stark zu fühlen?",
+  ],
+  d: [
+    "Wie erleben Patienten und Zuweiser die Person?",
+    "Gibt es Feedback oder Situationen, die wir gemeinsam anschauen sollten?",
+  ],
+  e: [
+    "Welche Stärken wollen wir gezielt weiterentwickeln?",
+    "Was ist das nächste konkrete Entwicklungsschritt?",
+  ],
+  f: [
+    "Wie funktioniert die Abstimmung im Alltag?",
+    "Wo braucht es klarere Erwartungen oder Feedback?",
+  ],
+}
+
 function QualGoalsPage() {
   const auth = useAuth()
   const years = useAvailableYears()
@@ -2651,21 +2683,22 @@ const RATING_WORDS = ["", "Entwicklungsbedarf", "Unter Erwartung", "Erwartung er
 function fullKatAgenda(bilatData, agenda) {
   const byCat = Object.fromEntries((agenda || []).map(c => [c.cat, c]))
   return KAT_KEYS_ALL.map(k => {
-    if (byCat[k]) return { ...byCat[k], optional: !KAT_KEYS_REQUIRED.includes(k) }
-    const selfV = bilatData[`kat_${k}_self`]
-    const fkV = bilatData[`kat_${k}_fk`]
+    const base = byCat[k]
+    const selfV = base?.self ?? bilatData[`kat_${k}_self`]
+    const fkV = base?.fk ?? bilatData[`kat_${k}_fk`]
     return {
       cat: k,
-      label: KAT_LABELS[k],
+      label: (base && base.label) || KAT_LABELS[k],
       self: selfV,
       fk: fkV,
-      self_label: selfV ? RATING_WORDS[selfV] : "—",
-      fk_label: fkV ? RATING_WORDS[fkV] : "—",
-      gap: selfV != null && fkV != null ? Math.abs(fkV - selfV) : null,
-      grave: false,
-      comment: bilatData[`kat_${k}_comment`] || "",
-      talk_prompts: [],
-      hint: selfV == null && fkV == null ? "Noch nicht bewertet" : "Nur teilweise bewertet",
+      self_label: base?.self_label || (selfV ? RATING_WORDS[selfV] : "—"),
+      fk_label: base?.fk_label || (fkV ? RATING_WORDS[fkV] : "—"),
+      gap: base?.gap ?? (selfV != null && fkV != null ? Math.abs(fkV - selfV) : null),
+      grave: base?.grave || false,
+      comment: base?.comment || bilatData[`kat_${k}_comment`] || "",
+      talk_notes: bilatData[`kat_${k}_talk_notes`] || base?.talk_notes || "",
+      talk_prompts: (base?.talk_prompts?.length ? base.talk_prompts : null) || TALK_PROMPTS[k] || [],
+      hint: base?.hint || (selfV == null && fkV == null ? "Noch nicht bewertet" : "Nur teilweise bewertet"),
       optional: !KAT_KEYS_REQUIRED.includes(k),
     }
   })
@@ -2679,13 +2712,14 @@ const FLOW_STEPS = [
 ]
 
 const BILAT_FIELD_KEYS = [
-  "kat_a_self", "kat_a_fk", "kat_a_comment",
-  "kat_b_self", "kat_b_fk", "kat_b_comment",
-  "kat_c_self", "kat_c_fk", "kat_c_comment",
-  "kat_d_self", "kat_d_fk", "kat_d_comment",
-  "kat_e_self", "kat_e_fk", "kat_e_comment",
-  "kat_f_self", "kat_f_fk", "kat_f_comment",
-  "vereinbarungen", "vereinbarungen_items", "themen_ma", "gespraechseindruck", "naechstes_bilat",
+  "kat_a_self", "kat_a_fk", "kat_a_comment", "kat_a_talk_notes",
+  "kat_b_self", "kat_b_fk", "kat_b_comment", "kat_b_talk_notes",
+  "kat_c_self", "kat_c_fk", "kat_c_comment", "kat_c_talk_notes",
+  "kat_d_self", "kat_d_fk", "kat_d_comment", "kat_d_talk_notes",
+  "kat_e_self", "kat_e_fk", "kat_e_comment", "kat_e_talk_notes",
+  "kat_f_self", "kat_f_fk", "kat_f_comment", "kat_f_talk_notes",
+  "vereinbarungen", "vereinbarungen_items", "themen_ma",
+  "gespraechsnotiz", "gespraechseindruck", "naechstes_bilat",
 ]
 
 function bilatPayload(data) {
@@ -2795,13 +2829,7 @@ function BilatDataPage() {
     })
   }
 
-  const updateQualStatus = async (idx, status, unlock = false) => {
-    if (qualSigned && !unlock) {
-      setMsg({ type: "err", text: "Qualis unterzeichnet — zuerst Bearbeitung freigeben." })
-      return
-    }
-    const next = qualGoals.map((g, i) => i === idx ? { ...g, status } : g)
-    setQualGoals(next)
+  const persistQualGoals = async (next, unlock = false) => {
     try {
       const res = await api(`/api/qual-goals/${selected.name}/${year}/${encodeURIComponent(period)}`, {
         method: "PUT",
@@ -2811,11 +2839,48 @@ function BilatDataPage() {
         }),
       })
       if (unlock) setQualSigned(null)
+      if (res.goals) setQualGoals(res.goals)
       loadFaktenblatt(selected.name)
       if (unlock) setMsg({ type: "ok", text: res.message || "Bearbeitung freigegeben" })
+      return res
     } catch (e) {
       setMsg({ type: "err", text: e.message })
       loadQual(selected.name)
+      throw e
+    }
+  }
+
+  const updateQualStatus = async (idx, status, unlock = false) => {
+    if (qualSigned && !unlock) {
+      setMsg({ type: "err", text: "Qualis unterzeichnet — zuerst Bearbeitung freigeben." })
+      return
+    }
+    let next
+    setQualGoals(prev => {
+      next = prev.map((g, i) => i === idx ? { ...g, status } : g)
+      return next
+    })
+    await persistQualGoals(next, unlock)
+  }
+
+  const updateQualField = (idx, field, value) => {
+    if (qualSigned) {
+      setMsg({ type: "err", text: "Qualis unterzeichnet — zuerst Bearbeitung freigeben." })
+      return
+    }
+    setQualGoals(prev => prev.map((g, i) => i === idx ? { ...g, [field]: value } : g))
+  }
+
+  const saveQualGoalsFromBilat = async () => {
+    if (qualSigned) return
+    setSaving(true)
+    try {
+      await persistQualGoals(qualGoals)
+      setMsg({ type: "ok", text: "Quali-Ziele gespeichert" })
+    } catch (_) {
+      /* persistQualGoals setzt Fehler */
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -3128,21 +3193,25 @@ function BilatDataPage() {
               </div>
               )}
 
-              {(faktenblatt.qual_goals || []).length > 0 && (
-                <div style={{ marginBottom: 18 }}>
-                  <div style={{ fontWeight: 800, fontSize: 13, color: "#004869", marginBottom: 8 }}>Qualitative Ziele</div>
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontWeight: 800, fontSize: 13, color: "#004869", marginBottom: 8 }}>Qualitative Ziele</div>
+                {(faktenblatt.qual_goals || []).length === 0 ? (
+                  <div style={{ fontSize: 12, color: "#888" }}>
+                    Keine Quali-Ziele für diese Periode — unter Quali-Themen pflegen.
+                  </div>
+                ) : (
                   <div style={{ display: "grid", gap: 8 }}>
                     {faktenblatt.qual_goals.map((g, i) => (
                       <div key={i} style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, padding: "8px 10px", background: "#F8FAFB", borderRadius: 8 }}>
                         <span style={{ fontWeight: 700, minWidth: 180 }}>{g.name}</span>
                         <span style={{ color: "#004869" }}>{g.result || "—"}</span>
                         <span style={{ color: "#888" }}>{g.status || ""}</span>
-                        {g.detail && <span style={{ color: "#666" }}>{g.detail}</span>}
+                        {g.detail && <span style={{ color: "#666", flex: "1 1 100%" }}>{g.detail}</span>}
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {(faktenblatt.leitfaden_points || []).length > 0 && (
                 <div>
@@ -3164,24 +3233,47 @@ function BilatDataPage() {
 
       {/* Phase: FK Vorbereitung */}
       {phase === "fk_prep" && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20 }}>
-          {KAT_KEYS_ALL.map(k => (
-            <div key={k} style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-              <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>
-                Kat. {k.toUpperCase()} — {KAT_LABELS[k]}
-                {!KAT_KEYS_REQUIRED.includes(k) && (
-                  <span style={{ fontWeight: 500, color: "#888", fontSize: 12 }}> (optional)</span>
-                )}
-              </h4>
-              <RatingButtons field={`kat_${k}_fk`} label="Einschätzung Führungskraft (1–5)" />
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Notiz FK (optional)</div>
-                <textarea value={bilatData[`kat_${k}_comment`] || ""}
-                  onChange={e => setBilatData({ ...bilatData, [`kat_${k}_comment`]: e.target.value })}
-                  style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 60, boxSizing: "border-box" }} />
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20, marginBottom: 20 }}>
+            {KAT_KEYS_ALL.map(k => (
+              <div key={k} style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>
+                  Kat. {k.toUpperCase()} — {KAT_LABELS[k]}
+                  {!KAT_KEYS_REQUIRED.includes(k) && (
+                    <span style={{ fontWeight: 500, color: "#888", fontSize: 12 }}> (optional)</span>
+                  )}
+                </h4>
+                <RatingButtons field={`kat_${k}_fk`} label="Einschätzung Führungskraft (1–5)" />
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Notiz FK (optional)</div>
+                  <textarea value={bilatData[`kat_${k}_comment`] || ""}
+                    onChange={e => setBilatData({ ...bilatData, [`kat_${k}_comment`]: e.target.value })}
+                    style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 60, boxSizing: "border-box" }} />
+                </div>
               </div>
+            ))}
+          </div>
+          <div style={{ background: "white", borderRadius: 12, padding: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+            <div style={{ fontWeight: 800, color: "#004869", marginBottom: 8, fontSize: 14 }}>
+              Qualitative Ziele (immer Bestandteil des Bilats)
             </div>
-          ))}
+            {qualGoals.length === 0 ? (
+              <div style={{ fontSize: 13, color: "#888" }}>
+                Noch keine Qualis — unter Quali-Themen pflegen. Sie erscheinen hier und im Abgleich.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 8 }}>
+                {qualGoals.map((g, i) => (
+                  <div key={i} style={{ fontSize: 13, padding: "8px 10px", background: "#F8FAFB", borderRadius: 8 }}>
+                    <strong>{g.name}</strong>
+                    {g.result ? <span style={{ color: "#004869", marginLeft: 8 }}>{g.result}</span> : null}
+                    <span style={{ color: "#888", marginLeft: 8 }}>{g.status || "offen"}</span>
+                    {g.detail && <div style={{ color: "#666", fontSize: 12, marginTop: 4, whiteSpace: "pre-wrap" }}>{g.detail}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -3212,6 +3304,22 @@ function BilatDataPage() {
               <textarea value={bilatData.themen_ma || ""} onChange={e => setBilatData({ ...bilatData, themen_ma: e.target.value })}
                 placeholder="Was liegt Ihnen auf dem Herzen?"
                 style={{ width: "100%", padding: 12, border: "1.5px solid #DDD", borderRadius: 8, fontSize: 14, resize: "vertical", minHeight: 100, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", gridColumn: "1 / -1" }}>
+              <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 12px", color: "#004869" }}>Qualitative Ziele</h4>
+              {qualGoals.length === 0 ? (
+                <div style={{ fontSize: 13, color: "#888" }}>Keine Quali-Ziele hinterlegt.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {qualGoals.map((g, i) => (
+                    <div key={i} style={{ fontSize: 13, padding: "8px 10px", background: "#F8FAFB", borderRadius: 8 }}>
+                      <strong>{g.name}</strong>
+                      {g.result ? <span style={{ marginLeft: 8, color: "#004869" }}>{g.result}</span> : null}
+                      {g.detail && <div style={{ color: "#666", fontSize: 12, marginTop: 4, whiteSpace: "pre-wrap" }}>{g.detail}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -3263,6 +3371,15 @@ function BilatDataPage() {
                     {cat.talk_prompts.map((q, i) => <li key={i}>{q}</li>)}
                   </ul>
                 )}
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Gesprächsnotiz (Freitext)</div>
+                  <textarea
+                    value={bilatData[`kat_${cat.cat}_talk_notes`] || ""}
+                    onChange={e => setBilatData({ ...bilatData, [`kat_${cat.cat}_talk_notes`]: e.target.value })}
+                    placeholder="Antworten / Notizen zu den Fragen…"
+                    style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 64, boxSizing: "border-box" }}
+                  />
+                </div>
               </div>
             ))}
           </div>
@@ -3277,20 +3394,30 @@ function BilatDataPage() {
           <div style={{ background: "white", borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
             <div style={{ fontWeight: 800, color: "#004869", marginBottom: 8, fontSize: 14 }}>Qualitative Ziele</div>
             {qualGoals.length === 0 ? (
-              <div style={{ fontSize: 13, color: "#888" }}>
-                Noch keine Qualis — unter Quali-Themen pflegen, dann hier Status setzen und unterzeichnen.
+              <div style={{ fontSize: 13, color: "#888", marginBottom: 8 }}>
+                Noch keine Qualis — unter Quali-Themen pflegen, dann hier Status/Detail setzen und unterzeichnen.
               </div>
             ) : (
-              <div style={{ display: "grid", gap: 8 }}>
+              <div style={{ display: "grid", gap: 10 }}>
                 {qualGoals.map((g, i) => (
-                  <div key={i} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", padding: "8px 10px", background: "#F8FAFB", borderRadius: 8, fontSize: 13 }}>
-                    <span style={{ fontWeight: 700, flex: "1 1 160px" }}>{g.name}</span>
-                    <span style={{ color: "#004869" }}>{g.result || "—"}</span>
-                    <select value={g.status || "offen"} onChange={e => updateQualStatus(i, e.target.value)}
+                  <div key={i} style={{ padding: "10px 12px", background: "#F8FAFB", borderRadius: 8, fontSize: 13 }}>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+                      <span style={{ fontWeight: 700, flex: "1 1 160px" }}>{g.name}</span>
+                      <span style={{ color: "#004869" }}>{g.result || "—"}</span>
+                      <select value={g.status || "offen"} onChange={e => updateQualStatus(i, e.target.value)}
+                        disabled={!!qualSigned}
+                        style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12, opacity: qualSigned ? 0.7 : 1 }}>
+                        {QUAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <textarea
+                      value={g.detail || ""}
+                      onChange={e => updateQualField(i, "detail", e.target.value)}
+                      onBlur={saveQualGoalsFromBilat}
                       disabled={!!qualSigned}
-                      style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12, opacity: qualSigned ? 0.7 : 1 }}>
-                      {QUAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                      placeholder="Detail / Freitext zum Ziel…"
+                      style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 12, resize: "vertical", minHeight: 52, boxSizing: "border-box", opacity: qualSigned ? 0.7 : 1 }}
+                    />
                   </div>
                 ))}
               </div>
@@ -3330,6 +3457,15 @@ function BilatDataPage() {
 
           <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
             <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>Abschluss des Gesprächs</h4>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Gesprächsnotiz (Freitext)</div>
+              <textarea
+                value={bilatData.gespraechsnotiz || ""}
+                onChange={e => setBilatData({ ...bilatData, gespraechsnotiz: e.target.value })}
+                placeholder="Zusätzliche Notizen zum gesamten Quali-/Bilat-Gespräch…"
+                style={{ width: "100%", padding: 12, border: "1.5px solid #DDD", borderRadius: 8, fontSize: 14, resize: "vertical", minHeight: 90, boxSizing: "border-box" }}
+              />
+            </div>
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 8 }}>Gesprächseindruck</div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -3393,7 +3529,13 @@ function BilatDataPage() {
                 </h4>
                 <div style={{ fontSize: 13, marginBottom: 6 }}>MA: <strong>{cat.self_label}</strong></div>
                 <div style={{ fontSize: 13, marginBottom: 8 }}>FK: <strong>{cat.fk_label}</strong></div>
-                {cat.comment && <div style={{ fontSize: 12, color: "#666" }}>{cat.comment}</div>}
+                {cat.comment && <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>{cat.comment}</div>}
+                {(bilatData[`kat_${cat.cat}_talk_notes`] || cat.talk_notes) && (
+                  <div style={{ fontSize: 12, color: "#333", marginTop: 6, whiteSpace: "pre-wrap" }}>
+                    <span style={{ color: "#888" }}>Gespräch: </span>
+                    {bilatData[`kat_${cat.cat}_talk_notes`] || cat.talk_notes}
+                  </div>
+                )}
                 {cat.optional && (cat.self == null || cat.fk == null) && (
                   <div style={{ marginTop: 10 }}>
                     <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>
@@ -3416,16 +3558,25 @@ function BilatDataPage() {
               <pre style={{ margin: 0, fontFamily: "inherit", fontSize: 13, whiteSpace: "pre-wrap" }}>{bilatData.vereinbarungen}</pre>
             </div>
           )}
-          {qualGoals.length > 0 && (
-            <div style={{ background: "white", borderRadius: 12, padding: 18, marginBottom: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-              <div style={{ fontWeight: 800, color: "#004869", marginBottom: 8 }}>
-                Qualis {qualSigned ? "· unterzeichnet" : ""}
-              </div>
-              {qualGoals.map((g, i) => (
-                <div key={i} style={{ fontSize: 13, marginBottom: 4 }}>
+          <div style={{ background: "white", borderRadius: 12, padding: 18, marginBottom: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+            <div style={{ fontWeight: 800, color: "#004869", marginBottom: 8 }}>
+              Qualitative Ziele {qualSigned ? "· unterzeichnet" : ""}
+            </div>
+            {qualGoals.length === 0 ? (
+              <div style={{ fontSize: 13, color: "#888" }}>Keine Quali-Ziele für diese Periode.</div>
+            ) : (
+              qualGoals.map((g, i) => (
+                <div key={i} style={{ fontSize: 13, marginBottom: 8 }}>
                   <strong>{g.name}</strong> — {g.status || "offen"} {g.result ? `(${g.result})` : ""}
+                  {g.detail && <div style={{ color: "#666", fontSize: 12, marginTop: 2, whiteSpace: "pre-wrap" }}>{g.detail}</div>}
                 </div>
-              ))}
+              ))
+            )}
+          </div>
+          {bilatData.gespraechsnotiz && (
+            <div style={{ background: "white", borderRadius: 12, padding: 18, marginBottom: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontWeight: 800, color: "#004869", marginBottom: 8 }}>Gesprächsnotiz</div>
+              <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{bilatData.gespraechsnotiz}</div>
             </div>
           )}
           {(bilatData.gespraechseindruck || bilatData.naechstes_bilat) && (
@@ -3792,13 +3943,19 @@ export default function App() {
   })
   const [page, setPage] = useState("dashboard")
 
-  const RESTRICTED_PAGES = useMemo(() => new Set(["upload", "exports", "lohnrechner", "admin"]), [])
+  const RESTRICTED_PAGES = useMemo(() => new Set(["upload", "exports", "admin"]), [])
+  const ALI_ONLY_PAGES = useMemo(() => new Set(["lohnrechner"]), [])
 
   useEffect(() => {
-    if (user && RESTRICTED_PAGES.has(page) && !hasFullAccess(user.role)) {
+    if (!user) return
+    if (ALI_ONLY_PAGES.has(page) && user.username !== "ali") {
+      setPage("dashboard")
+      return
+    }
+    if (RESTRICTED_PAGES.has(page) && !hasFullAccess(user.role)) {
       setPage("dashboard")
     }
-  }, [user, page, RESTRICTED_PAGES])
+  }, [user, page, RESTRICTED_PAGES, ALI_ONLY_PAGES])
 
   const handleLogin = (userData) => {
     setUser(userData)

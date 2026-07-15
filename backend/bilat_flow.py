@@ -90,6 +90,7 @@ def compute_deviations(b: BilatData | None) -> dict:
             "self_label": RATING_LABELS.get(self_v, str(self_v)),
             "fk_label": RATING_LABELS.get(fk_v, str(fk_v)),
             "comment": getattr(b, f"kat_{k}_comment", None) or "",
+            "talk_notes": getattr(b, f"kat_{k}_talk_notes", None) or "",
             "talk_prompts": list(TALK_PROMPTS.get(k, [])),
             "hint": fk_hint({
                 "label": KAT_LABELS.get(k, f"Kategorie {k.upper()}"),

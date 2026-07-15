@@ -1319,24 +1319,31 @@ class BilatInput(BaseModel):
     kat_a_self: Optional[int] = None
     kat_a_fk: Optional[int] = None
     kat_a_comment: Optional[str] = None
+    kat_a_talk_notes: Optional[str] = None
     kat_b_self: Optional[int] = None
     kat_b_fk: Optional[int] = None
     kat_b_comment: Optional[str] = None
+    kat_b_talk_notes: Optional[str] = None
     kat_c_self: Optional[int] = None
     kat_c_fk: Optional[int] = None
     kat_c_comment: Optional[str] = None
+    kat_c_talk_notes: Optional[str] = None
     kat_d_self: Optional[int] = None
     kat_d_fk: Optional[int] = None
     kat_d_comment: Optional[str] = None
+    kat_d_talk_notes: Optional[str] = None
     kat_e_self: Optional[int] = None
     kat_e_fk: Optional[int] = None
     kat_e_comment: Optional[str] = None
+    kat_e_talk_notes: Optional[str] = None
     kat_f_self: Optional[int] = None
     kat_f_fk: Optional[int] = None
     kat_f_comment: Optional[str] = None
+    kat_f_talk_notes: Optional[str] = None
     vereinbarungen: Optional[str] = None
     vereinbarungen_items: Optional[List[dict]] = None
     themen_ma: Optional[str] = None
+    gespraechsnotiz: Optional[str] = None
     gespraechseindruck: Optional[str] = None
     naechstes_bilat: Optional[str] = None
 
@@ -1373,6 +1380,8 @@ def _bilat_response(b: BilatData | None) -> dict:
         for k in ("a", "b", "c", "d", "e", "f"):
             payload[f"kat_{k}_fk"] = None
             payload[f"kat_{k}_comment"] = None
+            payload[f"kat_{k}_talk_notes"] = None
+        payload["gespraechsnotiz"] = None
         payload["deviations"] = {"categories": [], "has_grave": False, "all_mild": False, "ready": False}
         payload["agenda"] = []
         payload["fk_hints"] = []
@@ -1416,6 +1425,7 @@ def _apply_bilat_fields(b: BilatData, data: BilatInput, phase: str) -> None:
     elif phase == PHASE_MA_SELF:
         allowed = {k for k in dump if k.endswith("_self") or k == "themen_ma"}
     else:
+        # reveal / done: alles inkl. Gesprächsnotizen & Abschluss
         allowed = {k for k in dump if k != "vereinbarungen_items"}
     for k, v in dump.items():
         if k not in allowed:
@@ -1695,7 +1705,7 @@ def get_qual_goals(
 ):
     from bilat_hj1_export import canonical_period_label, _read_qual_goals_from_template
     from documents_store import get_signature, signature_as_dict
-    from qual_goals import list_qual_goals, goals_as_dicts
+    from qual_goals import list_qual_goals, resolve_qual_goals_for_bilat
 
     ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
     if not ma:
@@ -1703,14 +1713,16 @@ def get_qual_goals(
     period = canonical_period_label(period_label, year)
     _require_qual_goal_access(ma, current_user, db, year, period)
     rows = list_qual_goals(db, ma_name, year, period)
+    goals = resolve_qual_goals_for_bilat(db, ma_name, year, period)
     sig = signature_as_dict(get_signature(db, ma_name, year, period))
+    source = "db" if rows else ("template" if goals else "empty")
     return {
         "ma_name": ma_name,
         "display_name": ma.display_name,
         "period_label": period,
         "year": year,
-        "source": "db" if rows else "empty",
-        "goals": goals_as_dicts(rows),
+        "source": source,
+        "goals": goals,
         "template_goals": _read_qual_goals_from_template(ma_name),
         "signed": bool(sig),
         "signature": sig,

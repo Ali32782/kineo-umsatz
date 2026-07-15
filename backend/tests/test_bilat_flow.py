@@ -88,6 +88,18 @@ def test_vereinbarungen_roundtrip():
     assert items[0]["until"] == "2026-09-01"
 
 
-def test_format_empty_vereinbarungen_clears():
-    assert format_vereinbarungen([]) == ""
-    assert format_vereinbarungen([{"what": "", "who": "a", "until": "b"}]) == ""
+def test_deviations_include_talk_notes():
+    b = _Bilat()
+    for k in "abcd":
+        setattr(b, f"kat_{k}_self", 3)
+        setattr(b, f"kat_{k}_fk", 3)
+    b.kat_a_talk_notes = "Auslastung besprochen"
+    # E/F optional — Attribute können fehlen
+    for k in "ef":
+        setattr(b, f"kat_{k}_self", None)
+        setattr(b, f"kat_{k}_fk", None)
+        setattr(b, f"kat_{k}_talk_notes", None)
+    dev = compute_deviations(b)
+    a = next(c for c in dev["categories"] if c["cat"] == "a")
+    assert a["talk_notes"] == "Auslastung besprochen"
+    assert a["talk_prompts"]

@@ -844,6 +844,9 @@ def fill_hj1_template(
             self_v = getattr(bilat, f"kat_{key}_self", None)
             fk_v = getattr(bilat, f"kat_{key}_fk", None)
             comment = getattr(bilat, f"kat_{key}_comment", None) or ""
+            talk = getattr(bilat, f"kat_{key}_talk_notes", None) or ""
+            if talk:
+                comment = f"{comment}\n\nGespräch: {talk}".strip() if comment else f"Gespräch: {talk}"
             if len(t7.rows[row_idx].cells) > 3:
                 _set_rating_cell(t7.rows[row_idx].cells[2], self_v)
                 _set_rating_cell(t7.rows[row_idx].cells[3], fk_v)
@@ -854,7 +857,13 @@ def fill_hj1_template(
                 _set_row_cant_split(t7.rows[row_idx + 1])
 
     if bilat and bilat.themen_ma and "themen" in tables and len(tables["themen"].rows) > 1:
-        _set_cell_text(tables["themen"].rows[1].cells[0], bilat.themen_ma)
+        themen_text = bilat.themen_ma
+        if getattr(bilat, "gespraechsnotiz", None):
+            themen_text = f"{themen_text}\n\nGesprächsnotiz:\n{bilat.gespraechsnotiz}"
+        _set_cell_text(tables["themen"].rows[1].cells[0], themen_text)
+
+    elif bilat and getattr(bilat, "gespraechsnotiz", None) and "themen" in tables and len(tables["themen"].rows) > 1:
+        _set_cell_text(tables["themen"].rows[1].cells[0], f"Gesprächsnotiz:\n{bilat.gespraechsnotiz}")
 
     elif "themen" in tables and len(tables["themen"].rows) > 1:
         _set_cell_text(tables["themen"].rows[1].cells[0], "")

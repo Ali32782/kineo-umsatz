@@ -183,10 +183,18 @@ class BilatData(Base):
     kat_f_self = Column(Integer, nullable=True)
     kat_f_fk = Column(Integer, nullable=True)
     kat_f_comment = Column(Text, nullable=True)
+    # Gesprächsnotizen je Kategorie (Abgleich, neben den Fragen)
+    kat_a_talk_notes = Column(Text, nullable=True)
+    kat_b_talk_notes = Column(Text, nullable=True)
+    kat_c_talk_notes = Column(Text, nullable=True)
+    kat_d_talk_notes = Column(Text, nullable=True)
+    kat_e_talk_notes = Column(Text, nullable=True)
+    kat_f_talk_notes = Column(Text, nullable=True)
     # Vereinbarungen (JSON string)
     vereinbarungen = Column(Text, nullable=True)
     # Gesprächsnotizen
     themen_ma = Column(Text, nullable=True)
+    gespraechsnotiz = Column(Text, nullable=True)  # freier Freitext zum gesamten Gespräch
     gespraechseindruck = Column(String, nullable=True)
     naechstes_bilat = Column(String, nullable=True)
     flow_phase = Column(String, default="fk_prep")  # fk_prep | ma_self | reveal | done
@@ -537,9 +545,41 @@ def _migrate_bilat_kat_ef():
         pass
 
 
+def _migrate_bilat_talk_notes():
+    """Freitext je Kategorie + Gesamt-Gesprächsnotiz für den Abgleich."""
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    if not inspector.has_table("bilat_data"):
+        return
+    cols = {c["name"] for c in inspector.get_columns("bilat_data")}
+    needed = [
+        "kat_a_talk_notes", "kat_b_talk_notes", "kat_c_talk_notes",
+        "kat_d_talk_notes", "kat_e_talk_notes", "kat_f_talk_notes",
+        "gespraechsnotiz",
+    ]
+    missing = [c for c in needed if c not in cols]
+    if not missing:
+        return
+    with engine.begin() as conn:
+        for col in missing:
+            try:
+                conn.execute(text(f"ALTER TABLE bilat_data ADD COLUMN {col} TEXT"))
+            except Exception:
+                pass
+    try:
+        inspect(engine).clear_cache()
+    except Exception:
+        pass
+    try:
+        engine.dispose()
+    except Exception:
+        pass
+
+
 def ensure_bilat_ef_columns() -> None:
     """Öffentlich: vor Bilat-Save/Load aufrufen (Render Free / bestehende DBs)."""
     _migrate_bilat_kat_ef()
+    _migrate_bilat_talk_notes()
 
 
 def _migrate_ma_documents_content():
@@ -577,6 +617,7 @@ def migrate_schema():
     """Lightweight schema migrations (Spalten/Tabellen) — ohne Stammdaten zu überschreiben."""
     _migrate_bilat_flow_phase()
     _migrate_bilat_kat_ef()
+    _migrate_bilat_talk_notes()
     _migrate_ma_fk_columns()
     _migrate_ma_documents_content()
     _migrate_monthly_input_bd_h()
@@ -828,6 +869,80 @@ def _seed_hj1_2026_qual_eval():
         db.close()
 
 
+def _seed_anne_trinkl():
+    """Anne Trinkl — Head of Marketing & Design (Stammdaten + optional User)."""
+    from auth import hash_password
+
+    db = SessionLocal()
+    try:
+        changed = False
+        ma = db.query(MAStammdaten).filter_by(name="Anne.T").first()
+        if not ma:
+            db.add(MAStammdaten(
+                name="Anne.T",
+                display_name="Anne Trinkl",
+                team="Management",
+                role="management",
+                bg_pct=1.0,
+                eintritt="2026-01-01",
+                fk_username="sereina",
+                is_active=True,
+            ))
+            changed = True
+        else:
+            if ma.display_name != "Anne Trinkl":
+                ma.display_name = "Anne Trinkl"
+                changed = True
+            if ma.team != "Management":
+                ma.team = "Management"
+                changed = True
+            if not ma.is_active:
+                ma.is_active = True
+                changed = True
+            if not ma.fk_username:
+                ma.fk_username = "sereina"
+                changed = True
+        user = db.query(User).filter_by(username="anne").first()
+        if not user:
+            db.add(User(
+                username="anne",
+                full_name="Anne Trinkl",
+                role="management",
+                team="Management",
+                email="anne.trinkl@kineo.swiss",
+                linked_ma_name="Anne.T",
+                hashed_password=hash_password("kineo2026"),
+            ))
+            changed = True
+        if changed:
+            db.commit()
+    finally:
+        db.close()
+
+
+def _seed_hj2_2026_qual_goals():
+    """Einmalig: Ziele 2. HJ 2026 als Quali-Themen schreiben."""
+    from hj2_qual_goals_2026 import all_ma_goals, PERIOD, YEAR
+    from qual_goals import replace_qual_goals
+
+    db = SessionLocal()
+    try:
+        known = {m.name for m in db.query(MAStammdaten).all()}
+        for ma_name, goals in all_ma_goals().items():
+            if ma_name not in known or not goals:
+                continue
+            replace_qual_goals(
+                db,
+                ma_name=ma_name,
+                year=YEAR,
+                period_label=PERIOD,
+                goals=goals,
+                updated_by="seed_hj2_qual",
+            )
+    finally:
+        db.close()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     migrate_schema()
@@ -843,6 +958,8 @@ def init_db():
     run_migration_once("cc_team_pamela_v1", _seed_cc_team_pamela)
     run_migration_once("cc_pamela_fk_sereina_v2", _fix_pamela_fk_sereina)
     run_migration_once("hj1_2026_qual_eval_v1", _seed_hj1_2026_qual_eval)
+    run_migration_once("anne_trinkl_v1", _seed_anne_trinkl)
+    run_migration_once("hj2_2026_qual_goals_v2", _seed_hj2_2026_qual_goals)
     _backfill_sereina_coo()
     # Idempotent: FK Pam → Sereina bei jedem Start absichern
     _fix_pamela_fk_sereina()
