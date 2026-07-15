@@ -3361,12 +3361,16 @@ function BilatDataPage() {
                 <div style={{ fontSize: 13, marginBottom: 8 }}>FK: <strong>{cat.fk_label}</strong></div>
                 {cat.comment && <div style={{ fontSize: 12, color: "#666" }}>{cat.comment}</div>}
                 {cat.optional && (cat.self == null || cat.fk == null) && (
-                  <div style={{ marginTop: 10, fontSize: 12, color: "#888" }}>Kann noch nachgetragen werden — Speichern unten.</div>
-                )}
-                {cat.optional && (
                   <div style={{ marginTop: 10 }}>
-                    <RatingButtons field={`kat_${cat.cat}_fk`} label="FK nachtragen (1–5)" />
-                    <RatingButtons field={`kat_${cat.cat}_self`} label="MA nachtragen (1–5)" />
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>
+                      Kann noch nachgetragen werden — Speichern unten.
+                    </div>
+                    {cat.fk == null && (
+                      <RatingButtons field={`kat_${cat.cat}_fk`} label="FK nachtragen (1–5)" />
+                    )}
+                    {cat.self == null && (
+                      <RatingButtons field={`kat_${cat.cat}_self`} label="MA nachtragen (1–5)" />
+                    )}
                   </div>
                 )}
               </div>
