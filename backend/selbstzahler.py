@@ -46,6 +46,16 @@ SELBSTZAHLER_UNITS: dict[str, dict] = {
 UNIT_ORDER = ("shop", "fitness", "hyrox", "performance_lab")
 
 
+def can_view_selbstzahler(user) -> bool:
+    """Selbstzahler-Zahlen nur für Management/Vollzugriff und CC — nicht für andere Standorte."""
+    from auth import has_full_access
+
+    if has_full_access(getattr(user, "role", None)):
+        return True
+    team = (getattr(user, "team", None) or "").strip()
+    return team == "CC"
+
+
 def upsert_selbstzahler_umsatz(
     db: Session,
     *,

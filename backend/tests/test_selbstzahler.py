@@ -44,3 +44,15 @@ def test_shop_from_excel_upsert():
         assert units["shop"]["status"] == "aktiv"
     finally:
         db.close()
+
+
+def test_can_view_selbstzahler_roles():
+    from selbstzahler import can_view_selbstzahler
+    from types import SimpleNamespace
+
+    assert can_view_selbstzahler(SimpleNamespace(role="ceo", team=None))
+    assert can_view_selbstzahler(SimpleNamespace(role="coo", team="Management"))
+    assert can_view_selbstzahler(SimpleNamespace(role="bd", team="Management"))
+    assert can_view_selbstzahler(SimpleNamespace(role="teamlead", team="CC"))
+    assert not can_view_selbstzahler(SimpleNamespace(role="teamlead", team="Seefeld"))
+    assert not can_view_selbstzahler(SimpleNamespace(role="sl", team="Thalwil"))

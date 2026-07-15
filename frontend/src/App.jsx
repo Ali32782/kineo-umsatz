@@ -663,7 +663,7 @@ function DashboardPage() {
         })}
       </div>
 
-      {/* Selbstzahlerumsätze */}
+      {/* Selbstzahlerumsätze — API liefert nur für Management/CC Daten */}
       {(data.selbstzahler || []).length > 0 && (
         <div style={{ marginBottom: 28 }}>
           <div style={{ marginBottom: 14 }}>
@@ -2446,8 +2446,15 @@ function QualGoalsPage() {
                 <input value={g.result || ""} onChange={e => updateGoal(i, "result", e.target.value)}
                   placeholder="Ergebnis (z.B. 91.7%)" disabled={!!signature}
                   style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
-                <select value={g.status || "offen"} onChange={e => updateGoal(i, "status", e.target.value)} disabled={!!signature}
-                  style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }}>
+                <select
+                  value={QUAL_STATUSES.includes(g.status) ? g.status : (g.status || "offen")}
+                  onChange={e => updateStatusAndSave(i, e.target.value)}
+                  disabled={!!signature}
+                  style={{ padding: "8px 10px", border: "1.5px solid #004869", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: signature ? "not-allowed" : "pointer", background: signature ? "#F0F0F0" : "white" }}
+                >
+                  {!QUAL_STATUSES.includes(g.status) && g.status ? (
+                    <option value={g.status}>{g.status}</option>
+                  ) : null}
                   {QUAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>

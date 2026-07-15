@@ -932,9 +932,9 @@ def get_dashboard(
         and r.get("team") in team_summary
     ]
 
-    # Selbstzahler: Shop / Fitness / HYROX / Performance Lab
-    from selbstzahler import dashboard_units
-    selbstzahler = dashboard_units(db, year, month)
+    # Selbstzahler: nur Management/CC — andere Geschäftsbereiche ohne Einsicht
+    from selbstzahler import dashboard_units, can_view_selbstzahler
+    selbstzahler = dashboard_units(db, year, month) if can_view_selbstzahler(current_user) else []
 
     return {
         "year": year,
