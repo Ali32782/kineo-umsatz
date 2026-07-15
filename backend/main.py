@@ -1135,7 +1135,7 @@ async def export_bilat_single(
         raise HTTPException(status_code=500, detail=f"Word-Export fehlgeschlagen: {e}") from e
 
     safe = ma_name.replace(".", "_").replace(" ", "_")
-    half = "HJ1" if month <= 6 else "HJ2"
+    half = "HJ1" if period.upper().startswith("HJ1") else "HJ2"
     return _download_response(
         path,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -1503,9 +1503,9 @@ def get_bilat_periods(db: Session = Depends(get_db), current_user: User = Depend
     periods = [r[0] for r in rows if r[0]]
     # Add current default if not present
     import datetime as dt
-    year = dt.date.today().year
-    half = "HJ1" if dt.date.today().month <= 6 else "HJ2"
-    default = f"{half} {year}"
+    from bilat_hj1_export import period_for_calendar
+    today = dt.date.today()
+    default = period_for_calendar(today.year, today.month)
     if default not in periods:
         periods.insert(0, default)
     return periods
@@ -2002,14 +2002,15 @@ async def upload_document(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
     from documents_store import document_as_dict, save_bytes_document
-    from bilat_hj1_export import canonical_period_label
+    from bilat_hj1_export import canonical_period_label, period_for_calendar
 
     ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
     if not ma:
         raise HTTPException(status_code=404, detail="MA nicht gefunden")
     y = year or datetime.utcnow().year
-    half = "HJ1" if datetime.utcnow().month <= 6 else "HJ2"
-    period = canonical_period_label(period_label or f"{half} {y}", y)
+    today = datetime.utcnow()
+    default_period = period_for_calendar(today.year, today.month)
+    period = canonical_period_label(period_label or default_period, y)
     _require_qual_goal_access(ma, current_user, db, y, period)
     fname = _validate_upload_file(file.filename, file.content_type)
     content = await file.read()

@@ -64,13 +64,14 @@ def normalize_team(team: str | None) -> str:
 
 
 def months_for_period(period_label: str | None) -> list[int]:
+    """Monate einer Bilat-Periode: HJ1 = Feb–Jul, HJ2 = Aug–Dez (Jan = HJ2 Vorjahr)."""
     if not period_label:
         return list(range(1, 13))
     pl = period_label.upper()
     if "HJ1" in pl or pl.startswith("1."):
-        return list(range(1, 7))
+        return list(range(2, 8))
     if "HJ2" in pl or pl.startswith("2."):
-        return list(range(7, 13))
+        return list(range(8, 13))
     return list(range(1, 13))
 
 

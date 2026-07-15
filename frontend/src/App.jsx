@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext, useMemo, useRef } from "react"
 import { createPortal } from "react-dom"
-import { API, CURRENT_YEAR, DEFAULT_YEAR, DEFAULT_MONTH, periodForMonth } from "./config.js"
+import { API, CURRENT_YEAR, DEFAULT_YEAR, DEFAULT_MONTH, periodForMonth, defaultBilatPeriod } from "./config.js"
 import { CD, KineoLogo, NavIcon, ScheduleHelp, Bell, LogOut, Calendar, Users, formatRoleLabel, hasFullAccess, FULL_ACCESS_ROLES } from "./brand.jsx"
 
 const AuthCtx = createContext(null)
@@ -2238,10 +2238,9 @@ const TALK_PROMPTS = {
 function QualGoalsPage() {
   const auth = useAuth()
   const years = useAvailableYears()
-  const now = new Date()
-  const defaultPeriod = `${now.getMonth() < 6 ? "HJ1" : "HJ2"} ${now.getFullYear()}`
-  const [year, setYear] = useState(now.getFullYear())
-  const [period, setPeriod] = useState(defaultPeriod)
+  const defaults = defaultBilatPeriod()
+  const [year, setYear] = useState(defaults.year)
+  const [period, setPeriod] = useState(defaults.period)
   const [overview, setOverview] = useState([])
   const [selected, setSelected] = useState(null)
   const [goals, setGoals] = useState([])
@@ -2570,14 +2569,14 @@ function QualGoalsPage() {
 
 function DocumentsPage() {
   const years = useAvailableYears()
-  const now = new Date()
+  const defaults = defaultBilatPeriod()
   const [docs, setDocs] = useState([])
   const [mas, setMas] = useState([])
   const [filterMa, setFilterMa] = useState("")
   const [uploadMa, setUploadMa] = useState("")
   const [title, setTitle] = useState("")
-  const [uploadYear, setUploadYear] = useState(now.getFullYear())
-  const [uploadPeriod, setUploadPeriod] = useState(`${now.getMonth() < 6 ? "HJ1" : "HJ2"} ${now.getFullYear()}`)
+  const [uploadYear, setUploadYear] = useState(defaults.year)
+  const [uploadPeriod, setUploadPeriod] = useState(defaults.period)
   const [msg, setMsg] = useState(null)
   const [loading, setLoading] = useState(false)
 
@@ -2808,17 +2807,16 @@ const FLOW_PHASE_LABEL = {
 function BilatDataPage() {
   const auth = useAuth()
   const years = useAvailableYears()
-  const now = new Date()
-  const defaultPeriod = `${now.getMonth() < 6 ? "HJ1" : "HJ2"} ${now.getFullYear()}`
+  const defaults = defaultBilatPeriod()
   const [overview, setOverview] = useState([])
   const [selected, setSelected] = useState(null)
   const [bilatData, setBilatData] = useState({ flow_phase: "fk_prep", vereinbarungen_items: [emptyVereinbarung()] })
   const [faktenblatt, setFaktenblatt] = useState(null)
   const [faktenOpen, setFaktenOpen] = useState(true)
   const [msg, setMsg] = useState(null)
-  const [year, setYear] = useState(now.getFullYear())
-  const [period, setPeriod] = useState(defaultPeriod)
-  const [periods, setPeriods] = useState([defaultPeriod])
+  const [year, setYear] = useState(defaults.year)
+  const [period, setPeriod] = useState(defaults.period)
+  const [periods, setPeriods] = useState([defaults.period])
   const [newPeriod, setNewPeriod] = useState("")
   const [showNewPeriod, setShowNewPeriod] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -2840,7 +2838,10 @@ function BilatDataPage() {
     : [emptyVereinbarung()]
 
   useEffect(() => {
-    api("/api/bilat-periods").then(p => { setPeriods(p); if (!p.includes(period)) setPeriod(p[0] || defaultPeriod) }).catch(e => setMsg({ type: "err", text: e.message }))
+    api("/api/bilat-periods").then(p => {
+      setPeriods(p)
+      if (!p.includes(period)) setPeriod(defaults.period)
+    }).catch(e => setMsg({ type: "err", text: e.message }))
   }, [])
 
   useEffect(() => {

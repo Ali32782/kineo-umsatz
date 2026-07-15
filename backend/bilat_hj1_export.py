@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from copy import deepcopy
 
@@ -28,8 +29,22 @@ MONTH_SHORT = {1: "Jan", 2: "Feb", 3: "Mrz", 4: "Apr", 5: "Mai", 6: "Jun",
                7: "Jul", 8: "Aug", 9: "Sep", 10: "Okt", 11: "Nov", 12: "Dez"}
 
 
+def period_for_calendar(year: int, month: int) -> str:
+    """Bilat-/Quali-Periode nach Kalender:
+    Feb–Jul → HJ1 year · Aug–Dez → HJ2 year · Jan → HJ2 year-1.
+    """
+    if month < 1 or month > 12:
+        month = 6
+    if month == 1:
+        return f"HJ2 {year - 1}"
+    if month <= 7:
+        return f"HJ1 {year}"
+    return f"HJ2 {year}"
+
+
 def _half_label(month: int, year: int) -> str:
-    return f"{'1.' if month <= 6 else '2.'} HJ {year}"
+    label = period_for_calendar(year, month)
+    return f"{'1.' if label.startswith('HJ1') else '2.'} HJ {label.split()[-1]}"
 
 
 def _period_range(month: int, year: int) -> str:
@@ -432,13 +447,14 @@ def canonical_period_label(period_label: str | None, year: int, through_month: i
     if period_label:
         raw = period_label.upper().strip()
         compact = raw.replace(" ", "")
+        y_match = re.search(r"(20\d{2})", raw)
+        y = int(y_match.group(1)) if y_match else year
         # "1. HJ 2026" → compact "1.HJ2026" — HJ1 vor HJ2 prüfen (sonst trifft "HJ2" in "1.HJ…")
         if compact.startswith("1.") or "HJ1" in compact:
-            return f"HJ1 {year}"
+            return f"HJ1 {y}"
         if compact.startswith("2.") or "HJ2" in compact:
-            return f"HJ2 {year}"
-    m = through_month or 6
-    return f"HJ2 {year}" if m > 6 else f"HJ1 {year}"
+            return f"HJ2 {y}"
+    return period_for_calendar(year, through_month or 6)
 
 
 def _build_leitfaden_points(perf_range: str | None, qual_goal_names: list[str], bilat: BilatData | None) -> list[str]:

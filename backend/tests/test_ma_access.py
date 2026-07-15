@@ -13,7 +13,8 @@ def _user(role, team, *, username="tl", linked_ma_name=None):
 
 
 def test_months_for_period_hj1():
-    assert months_for_period("HJ1 2026") == list(range(1, 7))
+    assert months_for_period("HJ1 2026") == list(range(2, 8))
+    assert months_for_period("HJ2 2026") == list(range(8, 13))
 
 
 def test_list_assignable_fk_includes_ceo_coo_and_teamleads():

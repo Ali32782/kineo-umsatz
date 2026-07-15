@@ -9,10 +9,17 @@ from bilat_hj1_export import build_faktenblatt, canonical_period_label
 
 
 def test_canonical_period_label():
+    from bilat_hj1_export import period_for_calendar
     assert canonical_period_label("HJ1 2026", 2026) == "HJ1 2026"
     assert canonical_period_label("1. HJ 2026", 2026) == "HJ1 2026"
+    assert canonical_period_label("HJ2 2026", 2027) == "HJ2 2026"  # Jahr aus Label
     assert canonical_period_label(None, 2026, 6) == "HJ1 2026"
-    assert canonical_period_label(None, 2026, 9) == "HJ2 2026"
+    assert canonical_period_label(None, 2026, 7) == "HJ1 2026"  # Juli noch HJ1
+    assert canonical_period_label(None, 2026, 8) == "HJ2 2026"  # August → HJ2
+    assert canonical_period_label(None, 2027, 1) == "HJ2 2026"  # Jan → HJ2 Vorjahr
+    assert period_for_calendar(2026, 1) == "HJ2 2025"
+    assert period_for_calendar(2026, 7) == "HJ1 2026"
+    assert period_for_calendar(2026, 8) == "HJ2 2026"
 
 
 def test_qual_goals_override_template_in_faktenblatt():
