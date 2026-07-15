@@ -846,6 +846,7 @@ function UploadPage() {
       workshop_h: +((inputs[ma.name]?.workshop_h) || 0),
       marketing_h: +((inputs[ma.name]?.marketing_h) || 0),
       laufanalyse_h: +((inputs[ma.name]?.laufanalyse_h) || 0),
+      bd_h: +((inputs[ma.name]?.bd_h) || 0),
       krank_t: +((inputs[ma.name]?.krank_t) || 0),
       notes: inputs[ma.name]?.notes || null,
     }))
@@ -1046,7 +1047,7 @@ function UploadPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr style={{ background: "#004869", color: "white" }}>
-                  {["Mitarbeiter","Team","Ferien (T)","Kurse (h)","Workshop (h)","Marketing (h)","Laufanalyse (h)","Krank (T)"].map(h => (
+                  {["Mitarbeiter","Team","Ferien (T)","Kurse (h)","Workshop (h)","Marketing (h)","Laufanalyse (h)","Business Development (h)","Krank (T)"].map(h => (
                     <th key={h} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 700, whiteSpace: "nowrap" }}>{h}</th>
                   ))}
                 </tr>
@@ -1066,6 +1067,7 @@ function UploadPage() {
                     <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"workshop_h","")}</td>
                     <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"marketing_h","")}</td>
                     <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"laufanalyse_h","")}</td>
+                    <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"bd_h","")}</td>
                     <td style={{ padding: "4px 8px" }}>{inputField(ma.name,"krank_t","", "0.5", imported)}</td>
                   </tr>
                 )})}

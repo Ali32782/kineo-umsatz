@@ -294,6 +294,7 @@ def compute_zeg(
     workshop_h: float = 0,
     marketing_h: float = 0,
     laufanalyse_h: float = 0,
+    bd_h: float = 0,
     krank_t: float = 0,
     db=None,
     *,
@@ -320,7 +321,8 @@ def compute_zeg(
 
     prod_a = max(soll - ferien_t, 0)
     prod_b = max(soll - ferien_t - (kurs_h + workshop_h) / STD
-                 - marketing_h / STD - laufanalyse_h / STD - mgmt_t - leit_t, 0)
+                 - marketing_h / STD - laufanalyse_h / STD - bd_h / STD
+                 - mgmt_t - leit_t, 0)
     prod_c = max(prod_b - krank_t, 0)
 
     def zeg(prod):

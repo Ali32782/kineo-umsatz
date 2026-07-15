@@ -658,6 +658,7 @@ async def upload_abwesenheiten(
                     "workshop_h": row.workshop_h or 0,
                     "marketing_h": row.marketing_h or 0,
                     "laufanalyse_h": row.laufanalyse_h or 0,
+                    "bd_h": row.bd_h or 0,
                     "notes": row.notes,
                 }
 
@@ -699,6 +700,7 @@ class MonthlyInputData(BaseModel):
     workshop_h: float = 0
     marketing_h: float = 0
     laufanalyse_h: float = 0
+    bd_h: float = 0
     krank_t: float = 0
     notes: Optional[str] = None
 
@@ -725,6 +727,7 @@ def get_inputs(
     return {i.ma_name: {
         "ferien_t": i.ferien_t, "kurs_h": i.kurs_h, "workshop_h": i.workshop_h,
         "marketing_h": i.marketing_h, "laufanalyse_h": i.laufanalyse_h,
+        "bd_h": i.bd_h or 0,
         "krank_t": i.krank_t, "notes": i.notes
     } for i in inputs if i.ma_name in allowed}
 
@@ -744,7 +747,7 @@ def save_inputs(
             MonthlyInput.month == item.month,
         ).first()
         if existing:
-            for field in ["ferien_t","kurs_h","workshop_h","marketing_h","laufanalyse_h","krank_t","notes"]:
+            for field in ["ferien_t","kurs_h","workshop_h","marketing_h","laufanalyse_h","bd_h","krank_t","notes"]:
                 setattr(existing, field, getattr(item, field))
             existing.updated_at = datetime.utcnow()
             existing.updated_by = current_user.username
@@ -793,6 +796,7 @@ def get_dashboard(
             workshop_h=inp.workshop_h if inp else 0,
             marketing_h=inp.marketing_h if inp else 0,
             laufanalyse_h=inp.laufanalyse_h if inp else 0,
+            bd_h=(inp.bd_h if inp else 0) or 0,
             krank_t=inp.krank_t if inp else 0,
             db=db,
         )
@@ -950,6 +954,7 @@ def get_ytd(
                 workshop_h=inp.workshop_h if inp else 0,
                 marketing_h=inp.marketing_h if inp else 0,
                 laufanalyse_h=inp.laufanalyse_h if inp else 0,
+                bd_h=(inp.bd_h if inp else 0) or 0,
                 krank_t=krank_t,
                 pattern=pat,
                 feiertage_sets=feiertage_sets,
@@ -1164,7 +1169,7 @@ def get_import_status(
     input_agg: dict[int, dict] = {}
     for row in db.query(MonthlyInput).filter(MonthlyInput.year == year).all():
         has_activity = any([
-            row.ferien_t, row.kurs_h, row.workshop_h, row.marketing_h, row.laufanalyse_h, row.krank_t,
+            row.ferien_t, row.kurs_h, row.workshop_h, row.marketing_h, row.laufanalyse_h, row.bd_h, row.krank_t,
         ])
         if not has_activity:
             continue
@@ -1237,6 +1242,7 @@ def check_zeg_trends(
                 workshop_h=inp.workshop_h if inp else 0,
                 marketing_h=inp.marketing_h if inp else 0,
                 laufanalyse_h=inp.laufanalyse_h if inp else 0,
+                bd_h=(inp.bd_h if inp else 0) or 0,
                 krank_t=inp.krank_t if inp else 0,
                 db=db,
             )

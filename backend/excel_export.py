@@ -89,7 +89,7 @@ def generate_excel(year:int, db:Session)->str:
             zeg=compute_zeg(ma.name,year,mn,umsatz,
                 ferien_t=inp.ferien_t if inp else 0,kurs_h=inp.kurs_h if inp else 0,
                 workshop_h=inp.workshop_h if inp else 0,marketing_h=inp.marketing_h if inp else 0,
-                laufanalyse_h=inp.laufanalyse_h if inp else 0,krank_t=inp.krank_t if inp else 0,db=db)
+                laufanalyse_h=inp.laufanalyse_h if inp else 0,bd_h=getattr(inp,"bd_h",0) if inp else 0,krank_t=inp.krank_t if inp else 0,db=db)
             fc(ws.cell(row=row,column=sc,value=umsatz),bg=bg,fmt="#'##0",align='right')
             zb=zeg['zeg_b']
             fc(ws.cell(row=row,column=sc+1,value=zb),bold=bool(zb),bg=zeg_bg(zb),fmt='0.0%' if zb else None)
@@ -130,7 +130,7 @@ def generate_excel(year:int, db:Session)->str:
             zeg=compute_zeg(ma.name,year,mn,umsatz,
                 ferien_t=inp.ferien_t if inp else 0,kurs_h=inp.kurs_h if inp else 0,
                 workshop_h=inp.workshop_h if inp else 0,marketing_h=inp.marketing_h if inp else 0,
-                laufanalyse_h=inp.laufanalyse_h if inp else 0,krank_t=inp.krank_t if inp else 0,db=db)
+                laufanalyse_h=inp.laufanalyse_h if inp else 0,bd_h=getattr(inp,"bd_h",0) if inp else 0,krank_t=inp.krank_t if inp else 0,db=db)
             row_data={"name":ma.name,"display_name":ma.display_name,"team":ma.team,"umsatz":umsatz,**zeg}
             sched=get_schedule_entries_for_month(ma.name,year,mn,db)
             expanded.extend(expand_ma_standort_rows(row_data,ma.bg_pct,ma.team,sched))
@@ -149,14 +149,14 @@ def generate_excel(year:int, db:Session)->str:
     # ── Monthly sheets ───────────────────────────────────────────────────
     for mn in range(1,13):
         ws_m=wb.create_sheet(f"{MONTH_NAMES_DE[mn][:3]} {year}")
-        ws_m.merge_cells('A1:R1')
+        ws_m.merge_cells('A1:S1')
         c=ws_m['A1']; c.value=f'KINEO AG  |  {MONTH_NAMES_DE[mn]} {year}'
         c.font=Font(name='Arial',bold=True,color=WHITE,size=11)
         c.fill=PatternFill('solid',start_color=TEAL)
         c.alignment=Alignment(horizontal='center',vertical='center')
         ws_m.row_dimensions[1].height=24
 
-        hdrs=['Name','BG%','Soll','Ferien','Kurse(h)','Workshop(h)','Mkt(h)','Lauf(h)',
+        hdrs=['Name','BG%','Soll','Ferien','Kurse(h)','Workshop(h)','Mkt(h)','Lauf(h)','BD(h)',
               'Mgmt(T)','Leit(T)','Krank(T)','Prod-A','Prod-B','Prod-C','Umsatz','ZEG-A','ZEG-B','ZEG-C']
         ws_m.row_dimensions[2].height=28
         for col,h in enumerate(hdrs,1):
@@ -172,23 +172,24 @@ def generate_excel(year:int, db:Session)->str:
             zeg=compute_zeg(ma.name,year,mn,umsatz,
                 ferien_t=inp.ferien_t if inp else 0,kurs_h=inp.kurs_h if inp else 0,
                 workshop_h=inp.workshop_h if inp else 0,marketing_h=inp.marketing_h if inp else 0,
-                laufanalyse_h=inp.laufanalyse_h if inp else 0,krank_t=inp.krank_t if inp else 0,db=db)
+                laufanalyse_h=inp.laufanalyse_h if inp else 0,bd_h=getattr(inp,"bd_h",0) if inp else 0,krank_t=inp.krank_t if inp else 0,db=db)
             vals=[ma.display_name,ma.bg_pct,soll,
                 inp.ferien_t if inp else None,inp.kurs_h if inp else None,
                 inp.workshop_h if inp else None,inp.marketing_h if inp else None,
                 inp.laufanalyse_h if inp else None,
+                (getattr(inp, "bd_h", None) if inp else None) or None,
                 zeg['mgmt_t'] or None,zeg['leit_t'] or None,inp.krank_t if inp else None,
                 zeg['prod_a'],zeg['prod_b'],zeg['prod_c'],
                 umsatz,zeg['zeg_a'],zeg['zeg_b'],zeg['zeg_c']]
-            fmts=['','0%','0.0','0.0','0.0','0.0','0.0','0.0','0.00','0.00','0.0',
+            fmts=['','0%','0.0','0.0','0.0','0.0','0.0','0.0','0.0','0.00','0.00','0.0',
                   '0.0','0.0','0.0',"#'##0",'0.0%','0.0%','0.0%']
             for col,(val,fmt) in enumerate(zip(vals,fmts),1):
                 cbg=bg
-                if col in (16,17,18) and isinstance(val,float): cbg=zeg_bg(val)
+                if col in (17,18,19) and isinstance(val,float): cbg=zeg_bg(val)
                 fc(ws_m.cell(row=r,column=col,value=val),bold=(col==1),bg=cbg,
                    align='left' if col==1 else 'center',fmt=fmt if val else None)
 
-        for ci,w in enumerate([16,6,7,7,7,8,7,7,7,7,7,7,7,7,11,8,8,8],1):
+        for ci,w in enumerate([16,6,7,7,7,8,7,7,7,7,7,7,7,7,7,11,8,8,8],1):
             ws_m.column_dimensions[get_column_letter(ci)].width=w
         ws_m.freeze_panes='A3'
 

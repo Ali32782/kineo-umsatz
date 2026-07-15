@@ -345,6 +345,7 @@ def _compute_month_row(ma, year, m, umsatz_all, inputs_all, db) -> dict | None:
         workshop_h=inp.workshop_h if inp else 0,
         marketing_h=inp.marketing_h if inp else 0,
         laufanalyse_h=inp.laufanalyse_h if inp else 0,
+        bd_h=(inp.bd_h if inp else 0) or 0,
         krank_t=inp.krank_t if inp else 0,
         db=db,
     )

@@ -92,6 +92,7 @@ class MonthlyInput(Base):
     workshop_h = Column(Float, default=0.0)
     marketing_h = Column(Float, default=0.0)
     laufanalyse_h = Column(Float, default=0.0)
+    bd_h = Column(Float, default=0.0)  # Business Development (Stunden)
     krank_t = Column(Float, default=0.0)
     notes = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow)
@@ -558,12 +559,27 @@ def _migrate_ma_documents_content():
             conn.execute(text("ALTER TABLE ma_documents ADD COLUMN content BYTEA"))
 
 
+def _migrate_monthly_input_bd_h():
+    """Business-Development-Stunden in monthly_inputs."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if not inspector.has_table("monthly_inputs"):
+        return
+    cols = {c["name"] for c in inspector.get_columns("monthly_inputs")}
+    if "bd_h" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE monthly_inputs ADD COLUMN bd_h FLOAT DEFAULT 0"))
+
+
 def migrate_schema():
     """Lightweight schema migrations (Spalten/Tabellen) — ohne Stammdaten zu überschreiben."""
     _migrate_bilat_flow_phase()
     _migrate_bilat_kat_ef()
     _migrate_ma_fk_columns()
     _migrate_ma_documents_content()
+    _migrate_monthly_input_bd_h()
     if not IS_SQLITE:
         migrate_legacy_schedule_sets()
         _backfill_user_emails()
