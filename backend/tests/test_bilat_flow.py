@@ -53,7 +53,7 @@ def test_fk_hint_no_raw_numbers():
     assert "behutsam" in hint
 
 
-def test_advance_rejects_rewind_from_done():
+def test_advance_rejects_forward_from_done():
     b = _Bilat()
     b.flow_phase = "done"
     b.kat_a_fk = b.kat_b_fk = b.kat_c_fk = b.kat_d_fk = 3
@@ -62,6 +62,17 @@ def test_advance_rejects_rewind_from_done():
         assert False, "expected ValueError"
     except ValueError as e:
         assert "Vorbereitungsphase" in str(e)
+
+
+def test_rewind_and_reopen():
+    from bilat_flow import PHASE_DONE, PHASE_FK_PREP, PHASE_MA_SELF, PHASE_REVEAL
+    b = _Bilat()
+    b.flow_phase = PHASE_DONE
+    assert advance_phase(b, "reopen_reveal") == PHASE_REVEAL
+    assert advance_phase(b, "rewind") == PHASE_MA_SELF
+    assert advance_phase(b, "reopen_prep") == PHASE_FK_PREP
+    b.flow_phase = PHASE_DONE
+    assert advance_phase(b, "reopen_self") == PHASE_MA_SELF
 
 
 def test_vereinbarungen_roundtrip():

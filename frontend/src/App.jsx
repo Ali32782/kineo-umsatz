@@ -2902,7 +2902,9 @@ function BilatDataPage() {
         body: JSON.stringify({ data: bilatPayload(bilatData), flow_action: flowAction }),
       })
       setBilatData(prev => ({ ...prev, ...res }))
-      const okText = flowAction ? "Phase gespeichert" : "Gespeichert"
+      const okText = flowAction
+        ? (String(flowAction).startsWith("reopen") || flowAction === "rewind" ? "Phase zurückgesetzt" : "Phase gespeichert")
+        : "Gespeichert"
       setMsg({ type: "ok", text: okText })
       api(`/api/bilat-overview/${year}/${encodeURIComponent(period)}`).then(setOverview)
       api("/api/bilat-periods").then(setPeriods)
@@ -2921,6 +2923,30 @@ function BilatDataPage() {
       setMsg({ type: "err", text: errText })
       // Sofort sichtbar, auch wenn nach unten gescrollt
       window.alert("Speichern fehlgeschlagen:\n" + errText)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const deleteBilat = async () => {
+    if (!selected) return
+    const label = `${selected.display_name} · ${period} · ${year}`
+    if (!confirm(`Bilat wirklich löschen?\n\n${label}\n\nBewertungen und Notizen für diese Periode werden entfernt. Quali-Themen bleiben.`)) {
+      return
+    }
+    setSaving(true)
+    setMsg(null)
+    try {
+      const res = await api(`/api/bilat/${selected.name}/${year}/${encodeURIComponent(period)}`, {
+        method: "DELETE",
+      })
+      setMsg({ type: "ok", text: res.message || "Gelöscht" })
+      setSelected(null)
+      setBilatData({ flow_phase: "fk_prep", vereinbarungen_items: [emptyVereinbarung()] })
+      api(`/api/bilat-overview/${year}/${encodeURIComponent(period)}`).then(setOverview)
+      api("/api/bilat-periods").then(setPeriods)
+    } catch (e) {
+      setMsg({ type: "err", text: e.message || "Löschen fehlgeschlagen" })
     } finally {
       setSaving(false)
     }
@@ -2989,6 +3015,12 @@ function BilatDataPage() {
           Bilateral — {selected.display_name}
         </h1>
         <span style={{ color: "#888", fontSize: 13 }}>{period}</span>
+      </div>
+
+      <div style={{ background: "#F0F4F6", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: "#555", lineHeight: 1.5 }}>
+        Ablage: <strong>Bilaterals</strong> → Periode <strong>{period}</strong> → {selected.display_name}
+        {" "}(Datenbank, ein Datensatz pro Person und Periode).
+        {phase !== "fk_prep" && " Du kannst Phasen zurücksetzen oder das Bilat löschen."}
       </div>
 
       <FlowStepper />
@@ -3427,13 +3459,23 @@ function BilatDataPage() {
           </>
         )}
         {phase === "ma_self" && (
-          <button onClick={() => save("submit_self")} disabled={saving}
-            style={{ padding: "12px 32px", background: "#004869", color: "white", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 15 }}>
-            Selbsteinschätzung abschliessen →
-          </button>
+          <>
+            <button onClick={() => save("reopen_prep")} disabled={saving}
+              style={{ padding: "12px 24px", background: "#EEE", color: "#333", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>
+              ← Zurück zur FK-Vorbereitung
+            </button>
+            <button onClick={() => save("submit_self")} disabled={saving}
+              style={{ padding: "12px 32px", background: "#004869", color: "white", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 15 }}>
+              Selbsteinschätzung abschliessen →
+            </button>
+          </>
         )}
         {phase === "reveal" && (
           <>
+            <button onClick={() => save("rewind")} disabled={saving}
+              style={{ padding: "12px 24px", background: "#EEE", color: "#333", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>
+              ← Eine Phase zurück
+            </button>
             <button onClick={() => save()} disabled={saving}
               style={{ padding: "12px 24px", background: "#EEE", color: "#333", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>
               Zwischenspeichern
@@ -3445,9 +3487,27 @@ function BilatDataPage() {
           </>
         )}
         {phase === "done" && (
-          <button onClick={() => save()} disabled={saving}
-            style={{ padding: "12px 32px", background: "#004869", color: "white", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 15 }}>
-            Speichern
+          <>
+            <button onClick={() => save("reopen_reveal")} disabled={saving}
+              style={{ padding: "12px 24px", background: "#EEE", color: "#333", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>
+              Gespräch wieder öffnen
+            </button>
+            <button onClick={() => save()} disabled={saving}
+              style={{ padding: "12px 32px", background: "#004869", color: "white", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 15 }}>
+              Speichern
+            </button>
+          </>
+        )}
+        {phase !== "fk_prep" && (
+          <button type="button" onClick={deleteBilat} disabled={saving}
+            style={{ marginLeft: "auto", padding: "12px 20px", background: "white", color: "#c0392b", border: "1px solid #E8B4B4", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
+            Bilat löschen…
+          </button>
+        )}
+        {phase === "fk_prep" && (bilatData.kat_a_fk != null || bilatData.kat_b_fk != null) && (
+          <button type="button" onClick={deleteBilat} disabled={saving}
+            style={{ marginLeft: "auto", padding: "12px 20px", background: "white", color: "#c0392b", border: "1px solid #E8B4B4", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
+            Bilat löschen…
           </button>
         )}
       </div>
@@ -3461,7 +3521,9 @@ function BilatDataPage() {
   return (
     <div>
       <h1 style={{ fontFamily: "'Roboto Condensed', sans-serif",margin:"0 0 8px",fontSize:24,fontWeight:800}}>Bilaterals</h1>
-      <div style={{color:"#888",marginBottom:18,fontSize:13}}>Bewertungen erfassen und speichern</div>
+      <div style={{color:"#888",marginBottom:18,fontSize:13}}>
+        Gespräche pro Person und Periode. Aktuell: <strong style={{ color: "#004869" }}>{period}</strong> — MA anklicken zum Öffnen.
+      </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap", alignItems: "center" }}>
         <label style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>

@@ -197,8 +197,40 @@ def infer_phase(b: BilatData | None) -> str:
 
 
 def advance_phase(b: BilatData, action: str) -> str:
-    """action: submit_fk | submit_self | complete_reveal — nur vorwärts, kein Rewind."""
+    """
+    action vorwärts: submit_fk | submit_self | complete_reveal
+    action zurück:   reopen_reveal | reopen_self | reopen_prep | rewind
+    """
     current = (getattr(b, "flow_phase", None) or PHASE_FK_PREP)
+
+    # ── Zurück ──────────────────────────────────────────────────────────
+    if action == "rewind":
+        order = [PHASE_FK_PREP, PHASE_MA_SELF, PHASE_REVEAL, PHASE_DONE]
+        try:
+            idx = order.index(current)
+        except ValueError:
+            idx = 0
+        if idx <= 0:
+            raise ValueError("Bereits in der ersten Phase — nichts zum Zurückgehen.")
+        b.flow_phase = order[idx - 1]
+        return b.flow_phase
+    if action == "reopen_reveal":
+        if current != PHASE_DONE:
+            raise ValueError("Wiederöffnen nur aus der Abschluss-Phase möglich.")
+        b.flow_phase = PHASE_REVEAL
+        return b.flow_phase
+    if action == "reopen_self":
+        if current not in (PHASE_REVEAL, PHASE_DONE):
+            raise ValueError("Zurück zur Selbsteinschätzung nur ab Abgleich/Abschluss.")
+        b.flow_phase = PHASE_MA_SELF
+        return b.flow_phase
+    if action == "reopen_prep":
+        if current == PHASE_FK_PREP:
+            raise ValueError("Bereits in der FK-Vorbereitung.")
+        b.flow_phase = PHASE_FK_PREP
+        return b.flow_phase
+
+    # ── Vorwärts ────────────────────────────────────────────────────────
     if action == "submit_fk":
         if current not in (PHASE_FK_PREP,):
             raise ValueError("FK-Freigabe nur in der Vorbereitungsphase möglich.")

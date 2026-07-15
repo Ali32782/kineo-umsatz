@@ -1343,7 +1343,7 @@ class BilatInput(BaseModel):
 
 class BilatSaveRequest(BaseModel):
     data: BilatInput
-    flow_action: Optional[str] = None  # submit_fk | submit_self | complete_reveal
+    flow_action: Optional[str] = None  # submit_* | complete_reveal | reopen_* | rewind
 
 
 def _bilat_response(b: BilatData | None) -> dict:
@@ -1570,6 +1570,40 @@ def save_bilat(ma_name: str, year: int, period_label: str, body: BilatSaveReques
             ) from e2
     db.refresh(b)
     return _bilat_response(b)
+
+
+@app.delete("/api/bilat/{ma_name}/{year}/{period_label}")
+def delete_bilat(
+    ma_name: str, year: int, period_label: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Löscht das Bilat für MA + Periode (Bewertungen/Notizen). Qualis bleiben."""
+    from bilat_hj1_export import canonical_period_label
+    from ma_access import TEAM_SCOPE_ROLES, ma_visible_to_user
+
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+    if not ma:
+        raise HTTPException(status_code=404, detail="MA nicht gefunden")
+    period = canonical_period_label(period_label, year)
+    if current_user.role in TEAM_SCOPE_ROLES:
+        if not ma_visible_to_user(ma, current_user, db, year=year, months=months_for_period(period)):
+            raise HTTPException(status_code=403, detail="Keine Berechtigung")
+    elif not has_full_access(current_user.role):
+        raise HTTPException(status_code=403, detail="Keine Berechtigung")
+
+    b = db.query(BilatData).filter_by(ma_name=ma_name, year=year, period_label=period).first()
+    if not b:
+        raise HTTPException(status_code=404, detail="Kein Bilat für diese Periode")
+    db.delete(b)
+    db.commit()
+    return {
+        "message": f"Bilat für {ma.display_name or ma_name} · {period} gelöscht",
+        "ma_name": ma_name,
+        "year": year,
+        "period_label": period,
+    }
+
 
 @app.get("/api/bilat-overview/{year}/{period_label}")
 def get_bilat_overview(year: int, period_label: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
