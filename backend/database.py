@@ -805,6 +805,29 @@ def _fix_pamela_fk_sereina():
         db.close()
 
 
+def _seed_hj1_2026_qual_eval():
+    """Einmalig: Auswertung 1. HJ 2026 als Quali-Ziele schreiben."""
+    from hj1_qual_eval_2026 import all_ma_goals
+    from qual_goals import replace_qual_goals
+
+    db = SessionLocal()
+    try:
+        known = {m.name for m in db.query(MAStammdaten).all()}
+        for ma_name, goals in all_ma_goals().items():
+            if ma_name not in known or not goals:
+                continue
+            replace_qual_goals(
+                db,
+                ma_name=ma_name,
+                year=2026,
+                period_label="HJ1 2026",
+                goals=goals,
+                updated_by="seed_hj1_qual",
+            )
+    finally:
+        db.close()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     migrate_schema()
@@ -819,6 +842,7 @@ def init_db():
     run_migration_once("ma_fk_usernames_v1", _backfill_ma_fk_usernames)
     run_migration_once("cc_team_pamela_v1", _seed_cc_team_pamela)
     run_migration_once("cc_pamela_fk_sereina_v2", _fix_pamela_fk_sereina)
+    run_migration_once("hj1_2026_qual_eval_v1", _seed_hj1_2026_qual_eval)
     _backfill_sereina_coo()
     # Idempotent: FK Pam → Sereina bei jedem Start absichern
     _fix_pamela_fk_sereina()
