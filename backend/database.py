@@ -213,7 +213,8 @@ class QualGoal(Base):
     name = Column(String, nullable=False)
     result = Column(String, nullable=True)  # z.B. 91.7%
     status = Column(String, nullable=True)  # offen / läuft / gut / …
-    detail = Column(Text, nullable=True)
+    detail = Column(Text, nullable=True)  # Zielbeschreibung
+    notes = Column(Text, nullable=True)  # Freitext je Rubrik (Gespräch)
     updated_at = Column(DateTime, default=datetime.utcnow)
     updated_by = Column(String, nullable=True)
 
@@ -613,6 +614,27 @@ def _migrate_monthly_input_bd_h():
         conn.execute(text("ALTER TABLE monthly_inputs ADD COLUMN bd_h FLOAT DEFAULT 0"))
 
 
+def _migrate_qual_goal_notes():
+    """Freitext je Quali-Rubrik (Gesprächsnotiz pro Ziel)."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if not inspector.has_table("qual_goals"):
+        return
+    cols = {c["name"] for c in inspector.get_columns("qual_goals")}
+    if "notes" in cols:
+        return
+    with engine.begin() as conn:
+        try:
+            conn.execute(text("ALTER TABLE qual_goals ADD COLUMN notes TEXT"))
+        except Exception:
+            pass
+    try:
+        inspect(engine).clear_cache()
+    except Exception:
+        pass
+
+
 def migrate_schema():
     """Lightweight schema migrations (Spalten/Tabellen) — ohne Stammdaten zu überschreiben."""
     _migrate_bilat_flow_phase()
@@ -621,6 +643,7 @@ def migrate_schema():
     _migrate_ma_fk_columns()
     _migrate_ma_documents_content()
     _migrate_monthly_input_bd_h()
+    _migrate_qual_goal_notes()
     if not IS_SQLITE:
         migrate_legacy_schedule_sets()
         _backfill_user_emails()

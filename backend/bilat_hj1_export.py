@@ -442,14 +442,12 @@ def canonical_period_label(period_label: str | None, year: int, through_month: i
 
 
 def _build_leitfaden_points(perf_range: str | None, qual_goal_names: list[str], bilat: BilatData | None) -> list[str]:
+    """Nur Performance-Hinweis — Quali-Ziele stehen separat (keine Doppel-Liste)."""
     points: list[str] = []
     if perf_range:
         points.append(f"1.  Performance {perf_range}: Entwicklung & Trend besprechen")
-    for name in qual_goal_names:
-        if "nicht" in name.lower() and "erfasst" in name.lower():
-            continue
-        points.append(f"{len(points) + 1}.  {name}")
-    # Keine Roh-Skalenwerte in Gesprächspunkten (Abweichungen laufen über Agenda-Hinweise)
+    # qual_goal_names bewusst nicht hier wiederholen (Anzeige unter «Qualitative Ziele»)
+    _ = qual_goal_names, bilat
     return points
 
 
@@ -479,6 +477,7 @@ def _read_qual_goals_from_template(ma_name: str) -> list[dict]:
             "result": cells[1].text.strip() if len(cells) > 1 else "",
             "status": cells[2].text.strip() if len(cells) > 2 else "",
             "detail": cells[3].text.strip() if len(cells) > 3 else "",
+            "notes": "",
         })
     return goals
 

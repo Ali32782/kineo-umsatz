@@ -39,7 +39,8 @@ def test_qual_goals_override_template_in_faktenblatt():
         fb = build_faktenblatt(ma, 2026, 6, {}, {}, None, db, period_label=period)
         assert fb["qual_goals_source"] == "db"
         assert fb["qual_goals"][0]["name"] == "Test-Quali aus Management-UI"
-        assert any("Test-Quali" in p for p in fb["leitfaden_points"])
+        # Keine Doppel-Liste: Quali-Namen nicht nochmals unter Gesprächspunkten
+        assert not any("Test-Quali" in p for p in fb["leitfaden_points"])
     finally:
         db.close()
 

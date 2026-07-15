@@ -25,6 +25,7 @@ def goals_as_dicts(rows: list[QualGoal]) -> list[dict]:
             "result": r.result or "",
             "status": r.status or "",
             "detail": r.detail or "",
+            "notes": r.notes or "",
             "sort_order": r.sort_order or 0,
         }
         for r in rows
@@ -57,6 +58,7 @@ def replace_qual_goals(
             result=(g.get("result") or "").strip() or None,
             status=(g.get("status") or "").strip() or None,
             detail=(g.get("detail") or "").strip() or None,
+            notes=(g.get("notes") or "").strip() or None,
             updated_at=datetime.utcnow(),
             updated_by=updated_by,
         )

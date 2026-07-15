@@ -22,6 +22,27 @@ CC_KPI_TYPE: dict[str, str] = {
     "Pamela.P": "keine",
 }
 
+# Dashboard-Sonderbereich — nicht in der ZEG-B-Jahresübersicht
+SPECIALTY_PERFORMANCE: dict[str, dict] = {
+    "Ilaria.F": {
+        "units": ["Fitness"],
+        "title": "Fitness",
+        "kpi": "mitglieder",
+    },
+    "Nina.S": {
+        "units": ["HYROX", "Performance Lab"],
+        "title": "HYROX / Performance Lab",
+        "kpi": "umsatz",
+    },
+    "Marc.W": {
+        "units": ["Runnerslab", "Performance Lab"],
+        "title": "Runnerslab / Performance Lab",
+        "kpi": "umsatz",
+    },
+}
+
+ZEG_OVERVIEW_EXCLUDED = frozenset(SPECIALTY_PERFORMANCE.keys())
+
 
 def cc_kpi_label(ma_name: str) -> str | None:
     kind = CC_KPI_TYPE.get(ma_name)
@@ -32,6 +53,10 @@ def cc_kpi_label(ma_name: str) -> str | None:
     if kind == "keine":
         return "kein Umsatz-KPI"
     return None
+
+
+def is_zeg_overview_excluded(ma_name: str) -> bool:
+    return ma_name in ZEG_OVERVIEW_EXCLUDED
 
 
 def normalize_team(team: str | None) -> str:

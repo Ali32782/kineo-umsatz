@@ -19,7 +19,14 @@ from calc import (
 )
 from email_service import email_zeg_alarm, email_csv_reminder
 from auth import has_full_access, needs_rehash, hash_password
-from ma_access import filter_mas_for_user, months_for_period, CC_KPI_TYPE, cc_kpi_label
+from ma_access import (
+    filter_mas_for_user,
+    months_for_period,
+    CC_KPI_TYPE,
+    cc_kpi_label,
+    SPECIALTY_PERFORMANCE,
+    is_zeg_overview_excluded,
+)
 from rate_limit import client_ip, rate_limit
 
 def _require_full_access(user: User) -> None:
@@ -839,6 +846,44 @@ def get_dashboard(
         and r.get("team") in team_summary
     ]
 
+    # Specialty: Fitness / HYROX / Runnerslab / Performance Lab
+    specialty = []
+    specialty_mas = [m for m in mas if m.name in SPECIALTY_PERFORMANCE]
+    for ma in specialty_mas:
+        meta = SPECIALTY_PERFORMANCE[ma.name]
+        kpi = meta["kpi"]
+        entry = {
+            "name": ma.name,
+            "display_name": ma.display_name or ma.name,
+            "bg_pct": ma.bg_pct or 1.0,
+            "units": list(meta["units"]),
+            "title": meta["title"],
+            "kpi_type": kpi,
+        }
+        if kpi == "mitglieder":
+            row = (
+                db.query(MitgliederData)
+                .filter_by(ma_name=ma.name, year=year, month=month)
+                .first()
+            )
+            entry["mitglieder"] = row.count if row else None
+            entry["notes"] = row.notes if row else None
+            entry["umsatz"] = None
+            entry["value_label"] = (
+                f"{row.count:g} Mitglieder" if row and row.count is not None else "keine Mitgliederzahl"
+            )
+        else:
+            umsatz = umsatz_map.get(ma.name, 0) or 0
+            entry["umsatz"] = round(umsatz)
+            entry["mitglieder"] = None
+            entry["notes"] = None
+            entry["value_label"] = f"CHF {round(umsatz):,}".replace(",", "'")
+        specialty.append(entry)
+
+    # Reihenfolge: Fitness, HYROX, Runnerslab
+    order = {"Ilaria.F": 0, "Nina.S": 1, "Marc.W": 2}
+    specialty.sort(key=lambda e: order.get(e["name"], 99))
+
     return {
         "year": year,
         "month": month,
@@ -848,6 +893,7 @@ def get_dashboard(
         "total_umsatz": total_umsatz,
         "team_umsatz_sum": round(sum(v["umsatz"] for v in team_summary.values())),
         "total_fte": total_fte_all,
+        "specialty_performance": specialty,
     }
 
 # ── YTD Overview ──────────────────────────────────────────────────────────
@@ -883,6 +929,8 @@ def get_ytd(
         year=year,
         months=list(range(1, through_month + 1)) if through_month else None,
     )
+    # ZEG-B-Jahresübersicht: ohne Fitness/HYROX/Runnerslab/Performance Lab
+    mas = [m for m in mas if not is_zeg_overview_excluded(m.name)]
     fk_names = {m.fk_username for m in mas if m.fk_username}
     fk_users = {}
     if fk_names:
@@ -1653,6 +1701,7 @@ class QualGoalItem(BaseModel):
     result: Optional[str] = None
     status: Optional[str] = None
     detail: Optional[str] = None
+    notes: Optional[str] = None
     sort_order: Optional[int] = None
 
 

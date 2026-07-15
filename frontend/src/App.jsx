@@ -664,6 +664,59 @@ function DashboardPage() {
           )
         })}
       </div>
+
+      {/* Fitness / HYROX / Runnerslab / Performance Lab */}
+      {(data.specialty_performance || []).length > 0 && (
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ marginBottom: 14 }}>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, fontFamily: "'Roboto Condensed', sans-serif", color: "#1a1a1a", letterSpacing: "0.03em" }}>
+              Fitness / HYROX / Runnerslab / Performance Lab
+            </h2>
+            <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
+              Spezialbereiche — nicht Teil der ZEG-B-Standortübersicht
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 16 }}>
+            {data.specialty_performance.map(person => (
+              <div key={person.name} style={{ background: "white", borderRadius: 8, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <div style={{ background: "#F0F7FA", borderBottom: "3px solid #004869", padding: "14px 18px" }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, fontFamily: "'Roboto Condensed', sans-serif", letterSpacing: "0.04em", color: "#1a1a1a" }}>
+                    {person.title}
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {(person.units || []).map(u => (
+                      <span key={u} style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: "#004869", background: "white", border: "1px solid #B8D4E0", borderRadius: 4, padding: "2px 8px" }}>
+                        {u}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ padding: "14px 18px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a" }}>{person.display_name}</div>
+                      <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>
+                        {(person.bg_pct * 100).toFixed(0)}% Pensum
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#004869", textTransform: "uppercase", letterSpacing: 0.4 }}>
+                      {person.kpi_type === "mitglieder" ? "Mitglieder" : "Umsatz"}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "#1a1a1a" }}>
+                    {person.kpi_type === "mitglieder"
+                      ? (person.mitglieder != null ? `${Number(person.mitglieder).toLocaleString("de-CH")} Mitglieder` : "—")
+                      : (person.umsatz != null ? `CHF ${Number(person.umsatz).toLocaleString("de-CH")}` : "—")}
+                  </div>
+                  {person.notes && (
+                    <div style={{ fontSize: 12, color: "#666", marginTop: 8, lineHeight: 1.4 }}>{person.notes}</div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -2215,7 +2268,7 @@ function QualGoalsPage() {
     })
     if (!data) return
     setSelected(ma)
-    setGoals(data.goals?.length ? data.goals : [{ name: "", result: "", status: "offen", detail: "" }])
+    setGoals(data.goals?.length ? data.goals : [{ name: "", result: "", status: "offen", detail: "", notes: "" }])
     setTemplateGoals(data.template_goals || [])
     setSignature(data.signature || null)
     setSignForm({
@@ -2358,9 +2411,9 @@ function QualGoalsPage() {
                   {QUAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
-              <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
                 <input value={g.detail || ""} onChange={e => updateGoal(i, "detail", e.target.value)}
-                  placeholder="Detail / Bemerkung" disabled={!!signature}
+                  placeholder="Beschreibung / Zieltext" disabled={!!signature}
                   style={{ flex: 1, padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
                 {!signature && (
                   <button type="button" onClick={() => setGoals(gs => gs.filter((_, j) => j !== i))}
@@ -2369,12 +2422,15 @@ function QualGoalsPage() {
                   </button>
                 )}
               </div>
+              <textarea value={g.notes || ""} onChange={e => updateGoal(i, "notes", e.target.value)}
+                placeholder="Freitext / Gesprächsnotiz zu dieser Rubrik" disabled={!!signature}
+                style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 52, boxSizing: "border-box" }} />
             </div>
           ))}
         </div>
         <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
           {!signature && (
-            <button type="button" onClick={() => setGoals(gs => [...gs, { name: "", result: "", status: "offen", detail: "" }])}
+            <button type="button" onClick={() => setGoals(gs => [...gs, { name: "", result: "", status: "offen", detail: "", notes: "" }])}
               style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #DDD", background: "white", cursor: "pointer", fontWeight: 600 }}>
               + Ziel hinzufügen
             </button>
@@ -2885,14 +2941,10 @@ function BilatDataPage() {
 
   const saveQualGoalsFromBilat = async () => {
     if (qualSigned) return
-    setSaving(true)
     try {
       await persistQualGoals(qualGoals)
-      setMsg({ type: "ok", text: "Quali-Ziele gespeichert" })
     } catch (_) {
       /* persistQualGoals setzt Fehler */
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -3208,35 +3260,71 @@ function BilatDataPage() {
               <div style={{ marginBottom: 18 }}>
                 <div style={{ fontWeight: 800, fontSize: 13, color: "#004869", marginBottom: 8 }}>Qualitative Ziele</div>
                 <div style={{ fontSize: 11, color: "#888", marginBottom: 8 }}>
-                  Nur Anzeige — Status/Ergebnis unter Quali-Themen pflegen. Notizen hier erfassen.
+                  Status und Ergebnis ändern; Freitext je Rubrik. Speichern bei Statuswechsel / Feld verlassen.
                 </div>
-                {(faktenblatt.qual_goals || []).length === 0 ? (
+                {qualGoals.length === 0 ? (
                   <div style={{ fontSize: 12, color: "#888" }}>
                     Keine Quali-Ziele für diese Periode — unter Quali-Themen pflegen.
                   </div>
                 ) : (
-                  <div style={{ display: "grid", gap: 8 }}>
-                    {faktenblatt.qual_goals.map((g, i) => (
-                      <div key={i} style={{ fontSize: 12, padding: "8px 10px", background: "#F8FAFB", borderRadius: 8 }}>
-                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
-                          <span style={{ fontWeight: 700, minWidth: 180 }}>{g.name}</span>
-                          <span style={{ color: "#004869" }}>{g.result || "—"}</span>
-                          <span style={{ color: "#888" }}>{g.status || "offen"}</span>
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {qualGoals.map((g, i) => (
+                      <div key={g.id || i} style={{ fontSize: 12, padding: "10px 12px", background: "#F8FAFB", borderRadius: 8, opacity: qualSigned ? 0.85 : 1 }}>
+                        <div style={{ fontWeight: 700, color: "#1a1a1a", marginBottom: 4 }}>{g.name}</div>
+                        {g.detail && (
+                          <div style={{ color: "#666", marginBottom: 8, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
+                            {g.detail}
+                          </div>
+                        )}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 140px", gap: 8, marginBottom: 8 }}>
+                          <input
+                            value={g.result || ""}
+                            onChange={e => updateQualField(i, "result", e.target.value)}
+                            onBlur={saveQualGoalsFromBilat}
+                            disabled={!!qualSigned}
+                            placeholder="Ergebnis (z.B. 91.7% / CHF …)"
+                            style={{ padding: "7px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 12, boxSizing: "border-box" }}
+                          />
+                          <select
+                            value={g.status || "offen"}
+                            onChange={e => updateQualStatus(i, e.target.value)}
+                            disabled={!!qualSigned}
+                            style={{ padding: "7px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 12, background: "white" }}
+                          >
+                            {QUAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
                         </div>
-                        <div style={{ color: "#555", marginTop: 4, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
-                          {g.detail || "— keine Beschreibung —"}
-                        </div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: "#555", marginBottom: 4 }}>Freitext / Notiz zu dieser Rubrik</div>
+                        <textarea
+                          value={g.notes || ""}
+                          onChange={e => updateQualField(i, "notes", e.target.value)}
+                          onBlur={saveQualGoalsFromBilat}
+                          disabled={!!qualSigned}
+                          placeholder="Gesprächsnotiz zu diesem Ziel…"
+                          style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 12, resize: "vertical", minHeight: 56, boxSizing: "border-box" }}
+                        />
                       </div>
                     ))}
                   </div>
                 )}
+                {qualSigned && (
+                  <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                    <div style={{ fontSize: 12, color: "#1a7a1a", fontWeight: 600 }}>
+                      ✓ Qualis unterzeichnet ({qualSigned.fk_display_name} / {qualSigned.ma_display_name})
+                    </div>
+                    <button type="button" onClick={unlockQualEdit}
+                      style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #c0392b", background: "white", color: "#c0392b", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                      Bearbeitung freigeben
+                    </button>
+                  </div>
+                )}
                 <div style={{ marginTop: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Notiz / Freitext zu den Quali-Zielen</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Gesamtnotiz Quali (optional)</div>
                   <textarea
                     value={bilatData.gespraechsnotiz || ""}
                     onChange={e => setBilatData({ ...bilatData, gespraechsnotiz: e.target.value })}
-                    placeholder="Gesprächsnotizen zu den qualitativen Zielen…"
-                    style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 72, boxSizing: "border-box" }}
+                    placeholder="Übergreifende Gesprächsnotiz zu allen Quali-Zielen…"
+                    style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 56, boxSizing: "border-box" }}
                   />
                 </div>
               </div>
@@ -3380,25 +3468,6 @@ function BilatDataPage() {
                   <div style={{ fontSize: 12, color: "#555", marginBottom: 8, fontStyle: "italic" }}>FK-Notiz (Vorbereitung): {cat.comment}</div>
                 )}
                 {cat.hint && <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>{cat.hint}</div>}
-                {cat.cat === "b" && qualGoals.length > 0 && (
-                  <div style={{ margin: "8px 0 10px", padding: "10px 12px", background: "#F0F4F6", borderRadius: 8 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "#004869", marginBottom: 8 }}>Quali-Ziele (zur Besprechung)</div>
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {qualGoals.map((g, i) => (
-                        <div key={i} style={{ fontSize: 13 }}>
-                          <div style={{ fontWeight: 700, color: "#004869" }}>
-                            {g.name}
-                            {g.result ? <span style={{ fontWeight: 600, marginLeft: 8 }}>{g.result}</span> : null}
-                            {g.status ? <span style={{ fontWeight: 500, color: "#888", marginLeft: 8 }}>{g.status}</span> : null}
-                          </div>
-                          <div style={{ color: "#555", fontSize: 12, marginTop: 2, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
-                            {g.detail || "— keine Beschreibung hinterlegt —"}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
                 {(cat.talk_prompts || []).length > 0 && (
                   <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 13, color: "#333", lineHeight: 1.5 }}>
                     {cat.talk_prompts.map((q, i) => <li key={i}>{q}</li>)}
@@ -3415,68 +3484,35 @@ function BilatDataPage() {
             </div>
           )}
 
-          <div style={{ background: "white", borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-            <div style={{ fontWeight: 800, color: "#004869", marginBottom: 8, fontSize: 14 }}>Qualitative Ziele</div>
-            {qualGoals.length === 0 ? (
-              <div style={{ fontSize: 13, color: "#888", marginBottom: 8 }}>
-                Noch keine Qualis — unter Quali-Themen pflegen, dann hier Status/Detail setzen und unterzeichnen.
+          {qualGoals.length > 0 && !qualSigned && (
+            <div style={{ background: "white", borderRadius: 12, padding: 18, marginBottom: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontWeight: 800, color: "#004869", marginBottom: 8, fontSize: 14 }}>Qualis unterzeichnen</div>
+              <div style={{ fontSize: 12, color: "#888", marginBottom: 10 }}>
+                Ziele oben in den Gesprächsinfos pflegen. Hier am Ende unterzeichnen (PDF → Ablage).
               </div>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {qualGoals.map((g, i) => (
-                  <div key={i} style={{ padding: "10px 12px", background: "#F8FAFB", borderRadius: 8, fontSize: 13 }}>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
-                      <span style={{ fontWeight: 700, flex: "1 1 160px" }}>{g.name}</span>
-                      <span style={{ color: "#004869" }}>{g.result || "—"}</span>
-                      <span style={{ color: "#888", fontSize: 12 }}>{g.status || "offen"}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: "#555", marginBottom: 8, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
-                      {g.detail || <span style={{ color: "#999" }}>Keine Beschreibung — unter Quali-Themen pflegen.</span>}
-                    </div>
-                    <textarea
-                      value={g.detail || ""}
-                      onChange={e => updateQualField(i, "detail", e.target.value)}
-                      onBlur={saveQualGoalsFromBilat}
-                      disabled={!!qualSigned}
-                      placeholder="Zusätzliche Notiz / Detail zum Ziel…"
-                      style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 12, resize: "vertical", minHeight: 56, boxSizing: "border-box", opacity: qualSigned ? 0.7 : 1 }}
-                    />
-                  </div>
-                ))}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                <input value={signForm.fk_display_name} onChange={e => setSignForm({ ...signForm, fk_display_name: e.target.value })}
+                  placeholder="Name FK" style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
+                <input value={signForm.ma_confirm_name} onChange={e => setSignForm({ ...signForm, ma_confirm_name: e.target.value })}
+                  placeholder="Name MA" style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
               </div>
-            )}
-            {qualSigned ? (
-              <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-                <div style={{ fontSize: 12, color: "#1a7a1a", fontWeight: 600 }}>
-                  ✓ Qualis unterzeichnet ({qualSigned.fk_display_name} / {qualSigned.ma_display_name})
-                </div>
-                <button type="button" onClick={unlockQualEdit}
-                  style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #c0392b", background: "white", color: "#c0392b", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
-                  Bearbeitung freigeben
-                </button>
-              </div>
-            ) : qualGoals.length > 0 && (
-              <div style={{ marginTop: 14, borderTop: "1px solid #EEE", paddingTop: 14 }}>
-                <div style={{ fontSize: 12, color: "#888", marginBottom: 10 }}>Am Ende unterzeichnen (PDF → Ablage)</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                  <input value={signForm.fk_display_name} onChange={e => setSignForm({ ...signForm, fk_display_name: e.target.value })}
-                    placeholder="Name FK" style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
-                  <input value={signForm.ma_confirm_name} onChange={e => setSignForm({ ...signForm, ma_confirm_name: e.target.value })}
-                    placeholder="Name MA" style={{ padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13 }} />
-                </div>
-                <label style={{ display: "flex", gap: 8, fontSize: 12, marginBottom: 6, cursor: "pointer" }}>
-                  <input type="checkbox" checked={fkOk} onChange={e => setFkOk(e.target.checked)} /> FK bestätigt
-                </label>
-                <label style={{ display: "flex", gap: 8, fontSize: 12, marginBottom: 10, cursor: "pointer" }}>
-                  <input type="checkbox" checked={maOk} onChange={e => setMaOk(e.target.checked)} /> MA bestätigt
-                </label>
-                <button type="button" onClick={signQualis} disabled={saving}
-                  style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: "#004869", color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
-                  Qualis unterzeichnen & PDF ablegen
-                </button>
-              </div>
-            )}
-          </div>
+              <label style={{ display: "flex", gap: 8, fontSize: 12, marginBottom: 6, cursor: "pointer" }}>
+                <input type="checkbox" checked={fkOk} onChange={e => setFkOk(e.target.checked)} /> FK bestätigt
+              </label>
+              <label style={{ display: "flex", gap: 8, fontSize: 12, marginBottom: 10, cursor: "pointer" }}>
+                <input type="checkbox" checked={maOk} onChange={e => setMaOk(e.target.checked)} /> MA bestätigt
+              </label>
+              <button type="button" onClick={signQualis} disabled={saving}
+                style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: "#004869", color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                Qualis unterzeichnen & PDF ablegen
+              </button>
+            </div>
+          )}
+          {qualSigned && (
+            <div style={{ background: "#E8F8E8", borderRadius: 12, padding: 14, marginBottom: 20, fontSize: 13, color: "#1a7a1a", fontWeight: 600 }}>
+              ✓ Qualis unterzeichnet ({qualSigned.fk_display_name} / {qualSigned.ma_display_name})
+            </div>
+          )}
 
           <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
             <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>Abschluss des Gesprächs</h4>
