@@ -31,7 +31,7 @@ SELBSTZAHLER_UNITS: dict[str, dict] = {
         "label": "HYROX",
         "owner": "Nina.S",
         "owner_label": "Nina Schulte",
-        "source": "open",
+        "source": "excel",  # Training-Club Rechnungen (Stunde Hyrox)
         "has_mitglieder": False,
     },
     "performance_lab": {

@@ -707,7 +707,10 @@ function DashboardPage() {
                   {u.unit === "shop" && u.status === "offen" && (
                     <div style={{ fontSize: 11, color: "#888", marginTop: 6 }}>Shop-Excel (Marc) unter Daten eingeben</div>
                   )}
-                  {(u.unit === "hyrox" || u.unit === "performance_lab") && (
+                  {u.unit === "hyrox" && u.status === "offen" && (
+                    <div style={{ fontSize: 11, color: "#888", marginTop: 6 }}>HYROX-Rechnungen unter Daten eingeben</div>
+                  )}
+                  {u.unit === "performance_lab" && (
                     <div style={{ fontSize: 11, color: "#888", marginTop: 6 }}>Datenquelle noch offen</div>
                   )}
                 </div>
@@ -733,6 +736,7 @@ function UploadPage() {
   const [mitgliederFile, setMitgliederFile] = useState(null)
   const [fitnessFile, setFitnessFile] = useState(null)
   const [runnerslabFile, setRunnerslabFile] = useState(null)
+  const [hyroxFile, setHyroxFile] = useState(null)
   const [mitgliederCount, setMitgliederCount] = useState("")
   const [importedMAs, setImportedMAs] = useState(() => new Set())
   const [maList, setMaList] = useState([])
@@ -863,9 +867,27 @@ function UploadPage() {
     })
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
-      setMsg({ type: "ok", text: data.message || "Runnerslab importiert" })
+      setMsg({ type: "ok", text: data.message || "Shop importiert" })
       setStatusKey(k => k + 1)
-    } else setMsg({ type: "err", text: data.detail || "Runnerslab-Import fehlgeschlagen" })
+    } else setMsg({ type: "err", text: data.detail || "Shop-Import fehlgeschlagen" })
+    setSaving(false)
+  }
+
+  const uploadHyroxExcel = async () => {
+    if (!hyroxFile) return
+    setSaving(true); setMsg(null)
+    const fd = new FormData()
+    fd.append("file", hyroxFile)
+    fd.append("ma_name", "Nina.S")
+    const token = localStorage.getItem("token")
+    const res = await fetch(`${API}/api/upload-hyrox`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd,
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      setMsg({ type: "ok", text: data.message || "HYROX importiert" })
+      setStatusKey(k => k + 1)
+    } else setMsg({ type: "err", text: data.detail || "HYROX-Import fehlgeschlagen" })
     setSaving(false)
   }
 
@@ -1046,6 +1068,20 @@ function UploadPage() {
               <button type="button" onClick={uploadRunnerslabExcel} disabled={saving || !runnerslabFile}
                 style={{ background: "#004869", color: "white", border: "none", padding: "8px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
                 Shop-Excel importieren
+              </button>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 28, paddingTop: 24, borderTop: "1px solid #EEE" }}>
+            <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", color: "#004869" }}>HYROX (Nina)</h3>
+            <p style={{ margin: "0 0 14px", fontSize: 12, color: "#666" }}>
+              Training-Club Rechnungen (kineo-training-club_invoices…) — nur Status «Bezahlt» und Stunde «Hyrox», Summe nach Kaufdatum.
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+              <input type="file" accept=".xlsx,.xlsm" onChange={e => setHyroxFile(e.target.files?.[0] || null)} />
+              <button type="button" onClick={uploadHyroxExcel} disabled={saving || !hyroxFile}
+                style={{ background: "#004869", color: "white", border: "none", padding: "8px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
+                HYROX-Excel importieren
               </button>
             </div>
           </div>

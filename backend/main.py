@@ -603,6 +603,82 @@ async def upload_runnerslab(
         "total": round(sum(p["umsatz"] for p in parsed), 2),
     }
 
+
+@app.post("/api/upload-hyrox")
+async def upload_hyrox(
+    file: UploadFile = File(...),
+    ma_name: str = Form("Nina.S"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Training-Club Rechnungen → Selbstzahler HYROX (Stunde Hyrox, bezahlt)."""
+    _require_full_access(current_user)
+    from hyrox_import import parse_hyrox_invoices_excel
+    from selbstzahler import upsert_selbstzahler_umsatz
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Leere Datei")
+    try:
+        parsed = parse_hyrox_invoices_excel(content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Excel konnte nicht gelesen werden: {e}") from e
+    if not parsed:
+        raise HTTPException(status_code=400, detail="Keine bezahlten HYROX-Rechnungen gefunden")
+
+    ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
+    if not ma:
+        raise HTTPException(status_code=400, detail=f"MA {ma_name} nicht in Stammdaten")
+
+    saved = []
+    for p in parsed:
+        upsert_selbstzahler_umsatz(
+            db,
+            unit="hyrox",
+            year=p["year"],
+            month=p["month"],
+            umsatz=p["umsatz"],
+            updated_by=current_user.username,
+            notes=f"HYROX Rechnungen ({p.get('count', 0)}×)",
+        )
+        row = (
+            db.query(UmsatzData)
+            .filter_by(ma_name=ma_name, year=p["year"], month=p["month"])
+            .first()
+        )
+        if row:
+            row.umsatz = p["umsatz"]
+            row.uploaded_by = current_user.username
+            row.uploaded_at = datetime.utcnow()
+        else:
+            row = UmsatzData(
+                ma_name=ma_name,
+                year=p["year"],
+                month=p["month"],
+                umsatz=p["umsatz"],
+                uploaded_by=current_user.username,
+            )
+            db.add(row)
+        saved.append({
+            "ma_name": ma_name,
+            "unit": "hyrox",
+            "year": p["year"],
+            "month": p["month"],
+            "umsatz": p["umsatz"],
+            "count": p.get("count"),
+        })
+    db.commit()
+    years = sorted({p["year"] for p in parsed})
+    return {
+        "message": (
+            f"{len(saved)} Monate HYROX-Umsatz (Nina) importiert "
+            f"({', '.join(str(y) for y in years)}) — Total CHF {round(sum(p['umsatz'] for p in parsed), 2):,.2f}"
+        ).replace(",", "'"),
+        "items": saved,
+        "years": years,
+        "total": round(sum(p["umsatz"] for p in parsed), 2),
+    }
+
 # ── Abwesenheiten Excel Upload ────────────────────────────────────────────
 @app.post("/api/upload-abwesenheiten")
 async def upload_abwesenheiten(
