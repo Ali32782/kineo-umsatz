@@ -89,7 +89,6 @@ function ImportStatusPanel({ year, highlightMonth, onMonthClick, reloadKey = 0, 
       <div style={{ display: "grid", gridTemplateColumns: compact ? "repeat(6, 1fr)" : "repeat(6, 1fr)", gap: 8 }}>
         {status.months.map(m => {
           const hasUmsatz = m.umsatz.imported
-          const hasInputs = m.inputs.saved
           const active = highlightMonth === m.month
           const short = m.month_name.slice(0, 3)
           return (
