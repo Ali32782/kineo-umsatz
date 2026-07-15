@@ -107,19 +107,18 @@ function ImportStatusPanel({ year, highlightMonth, onMonthClick, reloadKey = 0, 
               <div style={{ fontWeight: 700, fontSize: 12, color: "#333", marginBottom: 4 }}>{short}</div>
               {hasUmsatz ? (
                 <>
-                  <div style={{ fontSize: 10, color: "#1a7a1a", lineHeight: 1.35 }}>
-                    {m.umsatz.ma_count} MA · CHF {Math.round(m.umsatz.total).toLocaleString("de-CH")}
+                  <div style={{ fontSize: 10, color: "#1a7a1a", lineHeight: 1.35, fontWeight: 600 }}>
+                    CHF {Math.round(m.umsatz.total).toLocaleString("de-CH")}
                   </div>
                   <div style={{ fontSize: 9, color: "#888", marginTop: 2 }}>
-                    {formatImportDt(m.umsatz.uploaded_at)}
-                    {m.umsatz.uploaded_by ? ` · ${m.umsatz.uploaded_by}` : ""}
+                    {formatImportDt(m.umsatz.uploaded_at) || "—"}
                   </div>
+                  {m.umsatz.uploaded_by && (
+                    <div style={{ fontSize: 9, color: "#888" }}>{m.umsatz.uploaded_by}</div>
+                  )}
                 </>
               ) : (
                 <div style={{ fontSize: 10, color: "#aaa" }}>kein CSV</div>
-              )}
-              {hasInputs && (
-                <div style={{ fontSize: 9, color: "#666", marginTop: 3 }}>✓ Tätigkeiten</div>
               )}
             </button>
           )
