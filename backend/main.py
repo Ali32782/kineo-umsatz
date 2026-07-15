@@ -1421,8 +1421,10 @@ def _apply_bilat_fields(b: BilatData, data: BilatInput, phase: str) -> None:
         # Explizit leeren erlauben (kein Fallback auf alten Text)
         dump["vereinbarungen"] = format_vereinbarungen(items)
     if phase == PHASE_FK_PREP:
-        allowed = {k for k in dump if k.endswith("_fk") or k.endswith("_comment")}
-    elif phase == PHASE_MA_SELF:
+        allowed = {
+            k for k in dump
+            if k.endswith("_fk") or k.endswith("_comment") or k == "gespraechsnotiz"
+        }    elif phase == PHASE_MA_SELF:
         allowed = {k for k in dump if k.endswith("_self") or k == "themen_ma"}
     else:
         # reveal / done: alles inkl. Gesprächsnotizen & Abschluss

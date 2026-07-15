@@ -3195,6 +3195,9 @@ function BilatDataPage() {
 
               <div style={{ marginBottom: 18 }}>
                 <div style={{ fontWeight: 800, fontSize: 13, color: "#004869", marginBottom: 8 }}>Qualitative Ziele</div>
+                <div style={{ fontSize: 11, color: "#888", marginBottom: 8 }}>
+                  Nur Anzeige — Status/Ergebnis unter Quali-Themen pflegen. Notizen hier erfassen.
+                </div>
                 {(faktenblatt.qual_goals || []).length === 0 ? (
                   <div style={{ fontSize: 12, color: "#888" }}>
                     Keine Quali-Ziele für diese Periode — unter Quali-Themen pflegen.
@@ -3206,7 +3209,7 @@ function BilatDataPage() {
                         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
                           <span style={{ fontWeight: 700, minWidth: 180 }}>{g.name}</span>
                           <span style={{ color: "#004869" }}>{g.result || "—"}</span>
-                          <span style={{ color: "#888" }}>{g.status || ""}</span>
+                          <span style={{ color: "#888" }}>{g.status || "offen"}</span>
                         </div>
                         <div style={{ color: "#555", marginTop: 4, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
                           {g.detail || "— keine Beschreibung —"}
@@ -3215,6 +3218,15 @@ function BilatDataPage() {
                     ))}
                   </div>
                 )}
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Notiz / Freitext zu den Quali-Zielen</div>
+                  <textarea
+                    value={bilatData.gespraechsnotiz || ""}
+                    onChange={e => setBilatData({ ...bilatData, gespraechsnotiz: e.target.value })}
+                    placeholder="Gesprächsnotizen zu den qualitativen Zielen…"
+                    style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 72, boxSizing: "border-box" }}
+                  />
+                </div>
               </div>
 
               {(faktenblatt.leitfaden_points || []).length > 0 && (
@@ -3237,47 +3249,24 @@ function BilatDataPage() {
 
       {/* Phase: FK Vorbereitung */}
       {phase === "fk_prep" && (
-        <div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20, marginBottom: 20 }}>
-            {KAT_KEYS_ALL.map(k => (
-              <div key={k} style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>
-                  Kat. {k.toUpperCase()} — {KAT_LABELS[k]}
-                  {!KAT_KEYS_REQUIRED.includes(k) && (
-                    <span style={{ fontWeight: 500, color: "#888", fontSize: 12 }}> (optional)</span>
-                  )}
-                </h4>
-                <RatingButtons field={`kat_${k}_fk`} label="Einschätzung Führungskraft (1–5)" />
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Notiz FK (optional)</div>
-                  <textarea value={bilatData[`kat_${k}_comment`] || ""}
-                    onChange={e => setBilatData({ ...bilatData, [`kat_${k}_comment`]: e.target.value })}
-                    style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 60, boxSizing: "border-box" }} />
-                </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20 }}>
+          {KAT_KEYS_ALL.map(k => (
+            <div key={k} style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <h4 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 16px", color: "#004869" }}>
+                Kat. {k.toUpperCase()} — {KAT_LABELS[k]}
+                {!KAT_KEYS_REQUIRED.includes(k) && (
+                  <span style={{ fontWeight: 500, color: "#888", fontSize: 12 }}> (optional)</span>
+                )}
+              </h4>
+              <RatingButtons field={`kat_${k}_fk`} label="Einschätzung Führungskraft (1–5)" />
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Notiz FK (optional)</div>
+                <textarea value={bilatData[`kat_${k}_comment`] || ""}
+                  onChange={e => setBilatData({ ...bilatData, [`kat_${k}_comment`]: e.target.value })}
+                  style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 60, boxSizing: "border-box" }} />
               </div>
-            ))}
-          </div>
-          <div style={{ background: "white", borderRadius: 12, padding: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-            <div style={{ fontWeight: 800, color: "#004869", marginBottom: 8, fontSize: 14 }}>
-              Qualitative Ziele (immer Bestandteil des Bilats)
             </div>
-            {qualGoals.length === 0 ? (
-              <div style={{ fontSize: 13, color: "#888" }}>
-                Noch keine Qualis — unter Quali-Themen pflegen. Sie erscheinen hier und im Abgleich.
-              </div>
-            ) : (
-              <div style={{ display: "grid", gap: 8 }}>
-                {qualGoals.map((g, i) => (
-                  <div key={i} style={{ fontSize: 13, padding: "8px 10px", background: "#F8FAFB", borderRadius: 8 }}>
-                    <strong>{g.name}</strong>
-                    {g.result ? <span style={{ color: "#004869", marginLeft: 8 }}>{g.result}</span> : null}
-                    <span style={{ color: "#888", marginLeft: 8 }}>{g.status || "offen"}</span>
-                    {g.detail && <div style={{ color: "#666", fontSize: 12, marginTop: 4, whiteSpace: "pre-wrap" }}>{g.detail}</div>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          ))}
         </div>
       )}
 
@@ -3427,21 +3416,17 @@ function BilatDataPage() {
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
                       <span style={{ fontWeight: 700, flex: "1 1 160px" }}>{g.name}</span>
                       <span style={{ color: "#004869" }}>{g.result || "—"}</span>
-                      <select value={g.status || "offen"} onChange={e => updateQualStatus(i, e.target.value)}
-                        disabled={!!qualSigned}
-                        style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12, opacity: qualSigned ? 0.7 : 1 }}>
-                        {QUAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
+                      <span style={{ color: "#888", fontSize: 12 }}>{g.status || "offen"}</span>
                     </div>
                     <div style={{ fontSize: 12, color: "#555", marginBottom: 8, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
-                      {g.detail || <span style={{ color: "#999" }}>Keine Beschreibung — bitte unten ergänzen.</span>}
+                      {g.detail || <span style={{ color: "#999" }}>Keine Beschreibung — unter Quali-Themen pflegen.</span>}
                     </div>
                     <textarea
                       value={g.detail || ""}
                       onChange={e => updateQualField(i, "detail", e.target.value)}
                       onBlur={saveQualGoalsFromBilat}
                       disabled={!!qualSigned}
-                      placeholder="Beschreibung / Detail zum Ziel (wichtig, wenn noch kein Ergebnis)…"
+                      placeholder="Zusätzliche Notiz / Detail zum Ziel…"
                       style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 12, resize: "vertical", minHeight: 56, boxSizing: "border-box", opacity: qualSigned ? 0.7 : 1 }}
                     />
                   </div>
@@ -3491,6 +3476,7 @@ function BilatDataPage() {
                 placeholder="Zusätzliche Notizen zum gesamten Quali-/Bilat-Gespräch…"
                 style={{ width: "100%", padding: 12, border: "1.5px solid #DDD", borderRadius: 8, fontSize: 14, resize: "vertical", minHeight: 90, boxSizing: "border-box" }}
               />
+              <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>Dieselbe Notiz wie oben bei den Quali-Zielen in den Gesprächsinfos.</div>
             </div>
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 8 }}>Gesprächseindruck</div>
