@@ -1692,7 +1692,13 @@ function AdminPage() {
   }
 
   const saveMA = async (isNew=false) => {
-    const data = isNew ? newMA : editMA
+    const data = isNew ? { ...newMA } : { ...editMA }
+    // BG: 90 oder 0.9 akzeptieren → immer Anteil 0–1 speichern
+    let bg = Number(data.bg_pct)
+    if (Number.isFinite(bg) && bg > 1.5) bg = bg / 100
+    if (!Number.isFinite(bg) || bg <= 0) bg = 1
+    if (bg > 1) bg = 1
+    data.bg_pct = Math.round(bg * 1000) / 1000
     const method = isNew ? "POST" : "PUT"
     const url = isNew ? "/api/admin/ma" : `/api/admin/ma/${encodeURIComponent(editMA.name)}`
     try {
@@ -1778,8 +1784,10 @@ function AdminPage() {
                 <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:4}}>Rolle</div>
                 <select style={inp({width:"100%",boxSizing:"border-box"})} value={newMA.role} onChange={e=>setNewMA({...newMA,role:e.target.value})}>
                   {ROLLEN.map(r => <option key={r} value={r}>{formatRoleLabel(r)}</option>)}</select></div>
-                <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:4}}>BG%</div>
-                <input type="number" min="0.1" max="1" step="0.1" style={inp({width:"100%",boxSizing:"border-box"})} value={newMA.bg_pct} onChange={e=>setNewMA({...newMA,bg_pct:+e.target.value})} /></div>
+                <div><div style={{fontSize:11,fontWeight:600,color:"#555",marginBottom:4}}>BG % (z.B. 90)</div>
+                <input type="number" min="10" max="100" step="10" style={inp({width:"100%",boxSizing:"border-box"})}
+                  value={Math.round((newMA.bg_pct > 1.5 ? newMA.bg_pct : newMA.bg_pct * 100) || 100)}
+                  onChange={e=>setNewMA({...newMA,bg_pct:(+e.target.value)/100})} /></div>
               </div>
               <div style={{display:"flex",gap:8,marginTop:16}}>
                 <button style={btn()} onClick={()=>saveMA(true)}>Speichern</button>
@@ -1801,6 +1809,13 @@ function AdminPage() {
                   {[["display_name",180],["fk_username",null],["role",null,ROLLEN],["team",null,STANDORTE],["bg_pct",60],["eintritt",120],["austritt",120]].map(([k,w,opts])=>(
                     <td key={k} style={{padding:"4px 8px"}}>
                       {k === "fk_username" ? fkSelect(editMA.fk_username, v => setEditMA({ ...editMA, fk_username: v }))
+                      : k === "bg_pct" ? (
+                        <input type="number" min="10" max="100" step="10" style={inp({ width: 70 })}
+                          value={Math.round((Number(editMA.bg_pct) > 1.5 ? Number(editMA.bg_pct) : Number(editMA.bg_pct) * 100) || 100)}
+                          onChange={e => setEditMA({ ...editMA, bg_pct: (+e.target.value) / 100 })}
+                          title="Beschäftigungsgrad in Prozent, z.B. 90"
+                        />
+                      )
                       : opts ? <select style={inp()} value={editMA[k]||""} onChange={e=>setEditMA({...editMA,[k]:e.target.value})}>
                         {opts.map(o => <option key={o} value={o}>{k === "role" ? formatRoleLabel(o) : o}</option>)}</select>
                       : <input style={inp({width:w||"100%"})} value={editMA[k]||""} onChange={e=>setEditMA({...editMA,[k]:e.target.value})} />}

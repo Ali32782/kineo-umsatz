@@ -981,6 +981,27 @@ def _rename_office_to_management():
         pass
 
 
+def _fix_bg_pct_as_fraction():
+    """BG% fälschlich als 90 statt 0.9 gespeichert → normalisieren."""
+    from bg_pct import normalize_bg_pct
+
+    db = SessionLocal()
+    try:
+        changed = False
+        for ma in db.query(MAStammdaten).all():
+            raw = ma.bg_pct
+            if raw is None:
+                continue
+            fixed = normalize_bg_pct(raw)
+            if fixed != raw:
+                ma.bg_pct = fixed
+                changed = True
+        if changed:
+            db.commit()
+    finally:
+        db.close()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     migrate_schema()
@@ -999,6 +1020,7 @@ def init_db():
     run_migration_once("anne_trinkl_v1", _seed_anne_trinkl)
     run_migration_once("hj2_2026_qual_goals_v2", _seed_hj2_2026_qual_goals)
     run_migration_once("office_to_management_v1", _rename_office_to_management)
+    run_migration_once("fix_bg_pct_percent_v1", _fix_bg_pct_as_fraction)
     _backfill_sereina_coo()
     # Idempotent: FK Pam → Sereina bei jedem Start absichern
     _fix_pamela_fk_sereina()

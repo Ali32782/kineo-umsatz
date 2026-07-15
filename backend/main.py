@@ -1431,7 +1431,8 @@ def _apply_bilat_fields(b: BilatData, data: BilatInput, phase: str) -> None:
         allowed = {
             k for k in dump
             if k.endswith("_fk") or k.endswith("_comment") or k == "gespraechsnotiz"
-        }    elif phase == PHASE_MA_SELF:
+        }
+    elif phase == PHASE_MA_SELF:
         allowed = {k for k in dump if k.endswith("_self") or k == "themen_ma"}
     else:
         # reveal / done: alles inkl. Gesprächsnotizen & Abschluss
@@ -2005,6 +2006,8 @@ def mark_all_read(db: Session = Depends(get_db), current_user: User = Depends(ge
     return {"message": "Alle gelesen"}
 
 # ── Admin: MA Stammdaten ──────────────────────────────────────────────────
+from bg_pct import normalize_bg_pct
+
 class MACreate(BaseModel):
     name: str
     display_name: str
@@ -2064,7 +2067,9 @@ def admin_get_ma(db: Session = Depends(get_db), current_user: User = Depends(get
 @app.post("/api/admin/ma")
 def admin_create_ma(data: MACreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     _require_full_access(current_user)
-    ma = MAStammdaten(**data.dict())
+    payload = data.model_dump()
+    payload["bg_pct"] = normalize_bg_pct(payload.get("bg_pct"))
+    ma = MAStammdaten(**payload)
     db.add(ma); db.commit(); db.refresh(ma)
     return {"id": ma.id, "message": f"{ma.name} erstellt"}
 
@@ -2073,7 +2078,10 @@ def admin_update_ma(ma_name: str, data: MACreate, db: Session = Depends(get_db),
     _require_full_access(current_user)
     ma = db.query(MAStammdaten).filter_by(name=ma_name).first()
     if not ma: raise HTTPException(status_code=404, detail="MA nicht gefunden")
-    for k,v in data.dict().items(): setattr(ma, k, v)
+    payload = data.model_dump()
+    payload["bg_pct"] = normalize_bg_pct(payload.get("bg_pct"))
+    for k, v in payload.items():
+        setattr(ma, k, v)
     db.commit()
     return {"message": f"{ma_name} aktualisiert"}
 
