@@ -2312,13 +2312,14 @@ function QualGoalsPage() {
     setMaOk(false)
   }
 
-  const save = async (unlock = false) => {
+  const save = async (unlock = false, goalsOverride = null) => {
+    const payload = goalsOverride || goals
     setSaving(true)
     try {
       const res = await api(`/api/qual-goals/${selected.name}/${year}/${encodeURIComponent(period)}`, {
         method: "PUT",
         body: JSON.stringify({
-          goals: goals.filter(g => (g.name || "").trim()),
+          goals: payload.filter(g => (g.name || "").trim()),
           unlock_signed: unlock,
         }),
       })
@@ -2395,6 +2396,13 @@ function QualGoalsPage() {
 
   const updateGoal = (idx, field, value) => {
     setGoals(gs => gs.map((g, i) => i === idx ? { ...g, [field]: value } : g))
+  }
+
+  const updateStatusAndSave = async (idx, status) => {
+    if (signature) return
+    const next = goals.map((g, i) => (i === idx ? { ...g, status } : g))
+    setGoals(next)
+    await save(false, next)
   }
 
   const selectStyle = { padding: "6px 10px", borderRadius: 6, border: "1px solid #DDD", fontSize: 12, background: "white", color: "#333" }
@@ -2914,6 +2922,8 @@ function BilatDataPage() {
     setFaktenOpen(true)
     setFkOk(false)
     setMaOk(false)
+    setQualGoals([])
+    setQualSigned(null)
     setSignForm({
       fk_display_name: auth.user?.full_name || "",
       ma_confirm_name: ma.display_name || "",
@@ -2932,6 +2942,7 @@ function BilatDataPage() {
   }
 
   const persistQualGoals = async (next, unlock = false) => {
+    if (!selected?.name) return null
     try {
       const res = await api(`/api/qual-goals/${selected.name}/${year}/${encodeURIComponent(period)}`, {
         method: "PUT",
@@ -2952,17 +2963,18 @@ function BilatDataPage() {
     }
   }
 
-  const updateQualStatus = async (idx, status, unlock = false) => {
-    if (qualSigned && !unlock) {
+  const updateQualStatus = async (idx, status) => {
+    if (qualSigned) {
       setMsg({ type: "err", text: "Qualis unterzeichnet — zuerst Bearbeitung freigeben." })
       return
     }
-    let next
-    setQualGoals(prev => {
-      next = prev.map((g, i) => i === idx ? { ...g, status } : g)
-      return next
-    })
-    await persistQualGoals(next, unlock)
+    const next = qualGoals.map((g, i) => (i === idx ? { ...g, status } : g))
+    setQualGoals(next)
+    try {
+      await persistQualGoals(next)
+    } catch (_) {
+      /* Fehlertext bereits gesetzt */
+    }
   }
 
   const updateQualField = (idx, field, value) => {
@@ -2970,11 +2982,11 @@ function BilatDataPage() {
       setMsg({ type: "err", text: "Qualis unterzeichnet — zuerst Bearbeitung freigeben." })
       return
     }
-    setQualGoals(prev => prev.map((g, i) => i === idx ? { ...g, [field]: value } : g))
+    setQualGoals(prev => prev.map((g, i) => (i === idx ? { ...g, [field]: value } : g)))
   }
 
   const saveQualGoalsFromBilat = async () => {
-    if (qualSigned) return
+    if (qualSigned || !selected?.name) return
     try {
       await persistQualGoals(qualGoals)
     } catch (_) {
@@ -3320,11 +3332,20 @@ function BilatDataPage() {
                             style={{ padding: "7px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 12, boxSizing: "border-box" }}
                           />
                           <select
-                            value={g.status || "offen"}
-                            onChange={e => updateQualStatus(i, e.target.value)}
+                            value={QUAL_STATUSES.includes(g.status) ? g.status : (g.status || "offen")}
+                            onChange={e => { e.stopPropagation(); updateQualStatus(i, e.target.value) }}
                             disabled={!!qualSigned}
-                            style={{ padding: "7px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 12, background: "white" }}
+                            aria-label={`Status ${g.name}`}
+                            style={{
+                              padding: "7px 10px", border: "1.5px solid #004869", borderRadius: 8,
+                              fontSize: 12, background: qualSigned ? "#F0F0F0" : "white",
+                              color: "#1a1a1a", cursor: qualSigned ? "not-allowed" : "pointer",
+                              fontWeight: 600, minHeight: 34,
+                            }}
                           >
+                            {!QUAL_STATUSES.includes(g.status) && g.status ? (
+                              <option value={g.status}>{g.status}</option>
+                            ) : null}
                             {QUAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                           </select>
                         </div>
