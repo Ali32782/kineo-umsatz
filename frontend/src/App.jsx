@@ -3202,11 +3202,15 @@ function BilatDataPage() {
                 ) : (
                   <div style={{ display: "grid", gap: 8 }}>
                     {faktenblatt.qual_goals.map((g, i) => (
-                      <div key={i} style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, padding: "8px 10px", background: "#F8FAFB", borderRadius: 8 }}>
-                        <span style={{ fontWeight: 700, minWidth: 180 }}>{g.name}</span>
-                        <span style={{ color: "#004869" }}>{g.result || "—"}</span>
-                        <span style={{ color: "#888" }}>{g.status || ""}</span>
-                        {g.detail && <span style={{ color: "#666", flex: "1 1 100%" }}>{g.detail}</span>}
+                      <div key={i} style={{ fontSize: 12, padding: "8px 10px", background: "#F8FAFB", borderRadius: 8 }}>
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
+                          <span style={{ fontWeight: 700, minWidth: 180 }}>{g.name}</span>
+                          <span style={{ color: "#004869" }}>{g.result || "—"}</span>
+                          <span style={{ color: "#888" }}>{g.status || ""}</span>
+                        </div>
+                        <div style={{ color: "#555", marginTop: 4, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
+                          {g.detail || "— keine Beschreibung —"}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -3362,24 +3366,43 @@ function BilatDataPage() {
                     <strong>{cat.fk_label}</strong>
                   </div>
                 </div>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Notiz zu den Gesprächsfragen</div>
+                  <textarea
+                    value={bilatData[`kat_${cat.cat}_talk_notes`] || ""}
+                    onChange={e => setBilatData({ ...bilatData, [`kat_${cat.cat}_talk_notes`]: e.target.value })}
+                    placeholder="Freitext / Antworten zu den Fragen unten…"
+                    style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 72, boxSizing: "border-box" }}
+                  />
+                </div>
                 {cat.comment && (
-                  <div style={{ fontSize: 12, color: "#555", marginBottom: 8, fontStyle: "italic" }}>FK-Notiz: {cat.comment}</div>
+                  <div style={{ fontSize: 12, color: "#555", marginBottom: 8, fontStyle: "italic" }}>FK-Notiz (Vorbereitung): {cat.comment}</div>
                 )}
                 {cat.hint && <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>{cat.hint}</div>}
+                {cat.cat === "b" && qualGoals.length > 0 && (
+                  <div style={{ margin: "8px 0 10px", padding: "10px 12px", background: "#F0F4F6", borderRadius: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#004869", marginBottom: 8 }}>Quali-Ziele (zur Besprechung)</div>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {qualGoals.map((g, i) => (
+                        <div key={i} style={{ fontSize: 13 }}>
+                          <div style={{ fontWeight: 700, color: "#004869" }}>
+                            {g.name}
+                            {g.result ? <span style={{ fontWeight: 600, marginLeft: 8 }}>{g.result}</span> : null}
+                            {g.status ? <span style={{ fontWeight: 500, color: "#888", marginLeft: 8 }}>{g.status}</span> : null}
+                          </div>
+                          <div style={{ color: "#555", fontSize: 12, marginTop: 2, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
+                            {g.detail || "— keine Beschreibung hinterlegt —"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {(cat.talk_prompts || []).length > 0 && (
                   <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 13, color: "#333", lineHeight: 1.5 }}>
                     {cat.talk_prompts.map((q, i) => <li key={i}>{q}</li>)}
                   </ul>
                 )}
-                <div style={{ marginTop: 10 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 6 }}>Gesprächsnotiz (Freitext)</div>
-                  <textarea
-                    value={bilatData[`kat_${cat.cat}_talk_notes`] || ""}
-                    onChange={e => setBilatData({ ...bilatData, [`kat_${cat.cat}_talk_notes`]: e.target.value })}
-                    placeholder="Antworten / Notizen zu den Fragen…"
-                    style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 13, resize: "vertical", minHeight: 64, boxSizing: "border-box" }}
-                  />
-                </div>
               </div>
             ))}
           </div>
@@ -3401,7 +3424,7 @@ function BilatDataPage() {
               <div style={{ display: "grid", gap: 10 }}>
                 {qualGoals.map((g, i) => (
                   <div key={i} style={{ padding: "10px 12px", background: "#F8FAFB", borderRadius: 8, fontSize: 13 }}>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
                       <span style={{ fontWeight: 700, flex: "1 1 160px" }}>{g.name}</span>
                       <span style={{ color: "#004869" }}>{g.result || "—"}</span>
                       <select value={g.status || "offen"} onChange={e => updateQualStatus(i, e.target.value)}
@@ -3410,13 +3433,16 @@ function BilatDataPage() {
                         {QUAL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                       </select>
                     </div>
+                    <div style={{ fontSize: 12, color: "#555", marginBottom: 8, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
+                      {g.detail || <span style={{ color: "#999" }}>Keine Beschreibung — bitte unten ergänzen.</span>}
+                    </div>
                     <textarea
                       value={g.detail || ""}
                       onChange={e => updateQualField(i, "detail", e.target.value)}
                       onBlur={saveQualGoalsFromBilat}
                       disabled={!!qualSigned}
-                      placeholder="Detail / Freitext zum Ziel…"
-                      style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 12, resize: "vertical", minHeight: 52, boxSizing: "border-box", opacity: qualSigned ? 0.7 : 1 }}
+                      placeholder="Beschreibung / Detail zum Ziel (wichtig, wenn noch kein Ergebnis)…"
+                      style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDD", borderRadius: 8, fontSize: 12, resize: "vertical", minHeight: 56, boxSizing: "border-box", opacity: qualSigned ? 0.7 : 1 }}
                     />
                   </div>
                 ))}
