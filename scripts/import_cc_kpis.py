@@ -56,7 +56,17 @@ def main() -> int:
                 print(f"FEHLER: {args.marc} nicht in Stammdaten")
                 return 1
             rows = parse_runnerslab_excel(args.runnerslab)
+            from selbstzahler import upsert_selbstzahler_umsatz
             for r in rows:
+                upsert_selbstzahler_umsatz(
+                    db,
+                    unit="shop",
+                    year=r["year"],
+                    month=r["month"],
+                    umsatz=r["umsatz"],
+                    updated_by="import_cc_kpis",
+                    notes="Shop / Runnerslab Excel",
+                )
                 row = (
                     db.query(UmsatzData)
                     .filter_by(ma_name=args.marc, year=r["year"], month=r["month"])
@@ -77,7 +87,7 @@ def main() -> int:
                         )
                     )
             db.commit()
-            print(f"Runnerslab: {len(rows)} Monate → {args.marc}")
+            print(f"Shop (Runnerslab): {len(rows)} Monate → {args.marc}")
             for r in rows:
                 if r["year"] >= 2025:
                     print(f"  {r['year']}-{r['month']:02d}: {r['umsatz']}")

@@ -665,51 +665,50 @@ function DashboardPage() {
         })}
       </div>
 
-      {/* Fitness / HYROX / Runnerslab / Performance Lab */}
-      {(data.specialty_performance || []).length > 0 && (
+      {/* Selbstzahlerumsätze */}
+      {(data.selbstzahler || []).length > 0 && (
         <div style={{ marginBottom: 28 }}>
           <div style={{ marginBottom: 14 }}>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, fontFamily: "'Roboto Condensed', sans-serif", color: "#1a1a1a", letterSpacing: "0.03em" }}>
-              Fitness / HYROX / Runnerslab / Performance Lab
+              Selbstzahlerumsätze
             </h2>
             <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
-              Spezialbereiche — nicht Teil der ZEG-B-Standortübersicht
+              Shop · Fitness · HYROX · Performance Lab — nicht Teil der ZEG-B-Standortübersicht
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 16 }}>
-            {data.specialty_performance.map(person => (
-              <div key={person.name} style={{ background: "white", borderRadius: 8, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 16 }}>
+            {data.selbstzahler.map(u => (
+              <div key={u.unit} style={{ background: "white", borderRadius: 8, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", opacity: u.status === "offen" && u.umsatz == null ? 0.85 : 1 }}>
                 <div style={{ background: "#F0F7FA", borderBottom: "3px solid #004869", padding: "14px 18px" }}>
                   <div style={{ fontWeight: 700, fontSize: 15, fontFamily: "'Roboto Condensed', sans-serif", letterSpacing: "0.04em", color: "#1a1a1a" }}>
-                    {person.title}
+                    {u.label}
                   </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                    {(person.units || []).map(u => (
-                      <span key={u} style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: "#004869", background: "white", border: "1px solid #B8D4E0", borderRadius: 4, padding: "2px 8px" }}>
-                        {u}
-                      </span>
-                    ))}
-                  </div>
+                  <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>{u.owner_label}</div>
                 </div>
                 <div style={{ padding: "14px 18px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a" }}>{person.display_name}</div>
-                      <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>
-                        {(person.bg_pct * 100).toFixed(0)}% Pensum
+                  {u.status === "offen" && u.umsatz == null ? (
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#888" }}>offen</div>
+                  ) : (
+                    <>
+                      {u.mitglieder != null && (
+                        <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
+                          {Number(u.mitglieder).toLocaleString("de-CH")} Mitglieder
+                          {u.formula ? ` · ${u.formula}` : ""}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 20, fontWeight: 800, color: "#1a1a1a" }}>
+                        {u.umsatz != null ? `CHF ${Number(u.umsatz).toLocaleString("de-CH")}` : "—"}
                       </div>
-                    </div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "#004869", textTransform: "uppercase", letterSpacing: 0.4 }}>
-                      {person.kpi_type === "mitglieder" ? "Mitglieder" : "Umsatz"}
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: "#1a1a1a" }}>
-                    {person.kpi_type === "mitglieder"
-                      ? (person.mitglieder != null ? `${Number(person.mitglieder).toLocaleString("de-CH")} Mitglieder` : "—")
-                      : (person.umsatz != null ? `CHF ${Number(person.umsatz).toLocaleString("de-CH")}` : "—")}
-                  </div>
-                  {person.notes && (
-                    <div style={{ fontSize: 12, color: "#666", marginTop: 8, lineHeight: 1.4 }}>{person.notes}</div>
+                    </>
+                  )}
+                  {u.unit === "fitness" && u.status === "offen" && (
+                    <div style={{ fontSize: 11, color: "#888", marginTop: 6 }}>Fitness-Excel unter Daten eingeben</div>
+                  )}
+                  {u.unit === "shop" && u.status === "offen" && (
+                    <div style={{ fontSize: 11, color: "#888", marginTop: 6 }}>Shop-Excel (Marc) unter Daten eingeben</div>
+                  )}
+                  {(u.unit === "hyrox" || u.unit === "performance_lab") && (
+                    <div style={{ fontSize: 11, color: "#888", marginTop: 6 }}>Datenquelle noch offen</div>
                   )}
                 </div>
               </div>
@@ -1008,9 +1007,9 @@ function UploadPage() {
           )}
 
           <div style={{ marginTop: 28, paddingTop: 24, borderTop: "1px solid #EEE" }}>
-            <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", color: "#004869" }}>Mitgliederzahlen (Ilaria / CC)</h3>
+            <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", color: "#004869" }}>Fitness (Ilaria) — Mitglieder & Umsatz</h3>
             <p style={{ margin: "0 0 14px", fontSize: 12, color: "#666" }}>
-              Fitness-Abo Excel (KW → Monat, letzter KW-Wert) oder CSV <em>month,count</em> — oder manuell für den Monat oben.
+              Fitness-Abo Excel (KW → Monat) oder CSV / manuell. Selbstzahler-Umsatz = Mitglieder × CHF 1’200.
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", marginBottom: 12 }}>
               <input type="file" accept=".xlsx,.xlsm" onChange={e => setFitnessFile(e.target.files?.[0] || null)} />
@@ -1038,15 +1037,15 @@ function UploadPage() {
           </div>
 
           <div style={{ marginTop: 28, paddingTop: 24, borderTop: "1px solid #EEE" }}>
-            <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", color: "#004869" }}>Runnerslab Umsätze (Marc / CC)</h3>
+            <h3 style={{ fontFamily: "'Roboto Condensed', sans-serif", margin: "0 0 8px", color: "#004869" }}>Shop / Retail (Marc)</h3>
             <p style={{ margin: "0 0 14px", fontSize: 12, color: "#666" }}>
-              Excel „Statistik Umsätze Runnerslab“ — Zeile Total je Monat wird für Marc.W gespeichert.
+              Excel „Statistik Umsätze Runnerslab“ — Zeile Total je Monat → Selbstzahler Shop.
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
               <input type="file" accept=".xlsx,.xlsm" onChange={e => setRunnerslabFile(e.target.files?.[0] || null)} />
               <button type="button" onClick={uploadRunnerslabExcel} disabled={saving || !runnerslabFile}
                 style={{ background: "#004869", color: "white", border: "none", padding: "8px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
-                Runnerslab-Excel importieren
+                Shop-Excel importieren
               </button>
             </div>
           </div>

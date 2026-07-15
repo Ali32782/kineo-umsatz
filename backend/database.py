@@ -81,6 +81,19 @@ class MitgliederData(Base):
     updated_at = Column(DateTime, default=datetime.utcnow)
     updated_by = Column(String)
 
+
+class SelbstzahlerUmsatz(Base):
+    """Monatsumsatz Selbstzahler-Bereiche (Shop, Fitness, HYROX, Performance Lab)."""
+    __tablename__ = "selbstzahler_umsatz"
+    id = Column(Integer, primary_key=True)
+    unit = Column(String, nullable=False, index=True)  # shop | fitness | hyrox | performance_lab
+    year = Column(Integer, nullable=False, index=True)
+    month = Column(Integer, nullable=False)
+    umsatz = Column(Float, default=0.0)
+    notes = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    updated_by = Column(String)
+
 class MonthlyInput(Base):
     __tablename__ = "monthly_inputs"
     id = Column(Integer, primary_key=True)

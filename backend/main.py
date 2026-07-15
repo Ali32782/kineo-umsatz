@@ -24,7 +24,6 @@ from ma_access import (
     months_for_period,
     CC_KPI_TYPE,
     cc_kpi_label,
-    SPECIALTY_PERFORMANCE,
     is_zeg_overview_excluded,
 )
 from rate_limit import client_ip, rate_limit
@@ -545,9 +544,10 @@ async def upload_runnerslab(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Runnerslab Umsatz-Excel → UmsatzData für Marc (Total je Monat)."""
+    """Runnerslab/Shop-Excel → Selbstzahler Shop (+ optional UmsatzData Marc)."""
     _require_full_access(current_user)
     from runnerslab_import import parse_runnerslab_excel
+    from selbstzahler import upsert_selbstzahler_umsatz
 
     content = await file.read()
     if not content:
@@ -565,6 +565,16 @@ async def upload_runnerslab(
 
     saved = []
     for p in parsed:
+        upsert_selbstzahler_umsatz(
+            db,
+            unit="shop",
+            year=p["year"],
+            month=p["month"],
+            umsatz=p["umsatz"],
+            updated_by=current_user.username,
+            notes="Shop / Runnerslab Excel",
+        )
+        # Legacy: auch unter Marc.W für Bilat/CC-Anzeige
         row = (
             db.query(UmsatzData)
             .filter_by(ma_name=ma_name, year=p["year"], month=p["month"])
@@ -583,11 +593,11 @@ async def upload_runnerslab(
                 uploaded_by=current_user.username,
             )
             db.add(row)
-        saved.append({"ma_name": ma_name, "year": p["year"], "month": p["month"], "umsatz": p["umsatz"]})
+        saved.append({"ma_name": ma_name, "unit": "shop", "year": p["year"], "month": p["month"], "umsatz": p["umsatz"]})
     db.commit()
     years = sorted({p["year"] for p in parsed})
     return {
-        "message": f"{len(saved)} Monate Umsatz für {ma_name} importiert ({', '.join(str(y) for y in years)})",
+        "message": f"{len(saved)} Monate Shop-Umsatz (Marc) importiert ({', '.join(str(y) for y in years)})",
         "items": saved,
         "years": years,
         "total": round(sum(p["umsatz"] for p in parsed), 2),
@@ -846,43 +856,9 @@ def get_dashboard(
         and r.get("team") in team_summary
     ]
 
-    # Specialty: Fitness / HYROX / Runnerslab / Performance Lab
-    specialty = []
-    specialty_mas = [m for m in mas if m.name in SPECIALTY_PERFORMANCE]
-    for ma in specialty_mas:
-        meta = SPECIALTY_PERFORMANCE[ma.name]
-        kpi = meta["kpi"]
-        entry = {
-            "name": ma.name,
-            "display_name": ma.display_name or ma.name,
-            "bg_pct": ma.bg_pct or 1.0,
-            "units": list(meta["units"]),
-            "title": meta["title"],
-            "kpi_type": kpi,
-        }
-        if kpi == "mitglieder":
-            row = (
-                db.query(MitgliederData)
-                .filter_by(ma_name=ma.name, year=year, month=month)
-                .first()
-            )
-            entry["mitglieder"] = row.count if row else None
-            entry["notes"] = row.notes if row else None
-            entry["umsatz"] = None
-            entry["value_label"] = (
-                f"{row.count:g} Mitglieder" if row and row.count is not None else "keine Mitgliederzahl"
-            )
-        else:
-            umsatz = umsatz_map.get(ma.name, 0) or 0
-            entry["umsatz"] = round(umsatz)
-            entry["mitglieder"] = None
-            entry["notes"] = None
-            entry["value_label"] = f"CHF {round(umsatz):,}".replace(",", "'")
-        specialty.append(entry)
-
-    # Reihenfolge: Fitness, HYROX, Runnerslab
-    order = {"Ilaria.F": 0, "Nina.S": 1, "Marc.W": 2}
-    specialty.sort(key=lambda e: order.get(e["name"], 99))
+    # Selbstzahler: Shop / Fitness / HYROX / Performance Lab
+    from selbstzahler import dashboard_units
+    selbstzahler = dashboard_units(db, year, month)
 
     return {
         "year": year,
@@ -893,7 +869,7 @@ def get_dashboard(
         "total_umsatz": total_umsatz,
         "team_umsatz_sum": round(sum(v["umsatz"] for v in team_summary.values())),
         "total_fte": total_fte_all,
-        "specialty_performance": specialty,
+        "selbstzahler": selbstzahler,
     }
 
 # ── YTD Overview ──────────────────────────────────────────────────────────

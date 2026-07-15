@@ -22,26 +22,8 @@ CC_KPI_TYPE: dict[str, str] = {
     "Pamela.P": "keine",
 }
 
-# Dashboard-Sonderbereich — nicht in der ZEG-B-Jahresübersicht
-SPECIALTY_PERFORMANCE: dict[str, dict] = {
-    "Ilaria.F": {
-        "units": ["Fitness"],
-        "title": "Fitness",
-        "kpi": "mitglieder",
-    },
-    "Nina.S": {
-        "units": ["HYROX", "Performance Lab"],
-        "title": "HYROX / Performance Lab",
-        "kpi": "umsatz",
-    },
-    "Marc.W": {
-        "units": ["Runnerslab", "Performance Lab"],
-        "title": "Runnerslab / Performance Lab",
-        "kpi": "umsatz",
-    },
-}
-
-ZEG_OVERVIEW_EXCLUDED = frozenset(SPECIALTY_PERFORMANCE.keys())
+# ZEG-B-Jahresübersicht: ohne Selbstzahler-Verantwortliche
+ZEG_OVERVIEW_EXCLUDED = frozenset({"Marc.W", "Nina.S", "Ilaria.F"})
 
 
 def cc_kpi_label(ma_name: str) -> str | None:
